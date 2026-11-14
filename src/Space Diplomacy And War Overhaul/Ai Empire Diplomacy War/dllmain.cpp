@@ -9,6 +9,8 @@
 #include <Spore/Swarm/cEffectsManager.h>
 #include <Spore/Simulator/cCity.h>
 #include <Spore/Simulator/cBuilding.h>
+#include <Spore/Simulator/cSpaceToolData.h>
+#include <Spore/Simulator/SubSystem/ToolManager.h>
 #include <Spore/CommonIDs.h>
 #include <Spore-Mod-Utils/Include/SporeModUtils.h>
 #include "Warfare/DebugWarfare.h"
@@ -72,6 +74,19 @@ member_detour(ShouldSpawnRaiderUFO__detour, cRaidEvent, bool())
 
 static bool sIsGeneratingInitialPlanetGarrison = false;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcPlanetUprisingCooldowns;
+static eastl::map<cPlanetRecordPtr, uint32_t> sNpcHangarJamCooldowns;
+static bool sRaiderRallyPanicActive = false;
+
+static bool MatchNpcToolKey(uint32_t idVal, const char* n1, const char* n2, const char* n3 = nullptr, uint32_t raw1 = 0, uint32_t raw2 = 0)
+{
+	if (idVal == 0) return false;
+	if (n1 && idVal == id(n1)) return true;
+	if (n2 && idVal == id(n2)) return true;
+	if (n3 && idVal == id(n3)) return true;
+	if (raw1 != 0 && idVal == raw1) return true;
+	if (raw2 != 0 && idVal == raw2) return true;
+	return false;
+}
 
 static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, float defaultVal)
 {
@@ -138,12 +153,26 @@ static int GetDynamicMaxTreasuryForEmpire(cEmpire* empire, cCompositionRoot* roo
 	Simulator::Archetypes baseArch = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
 	float tradeMult = (baseArch == Archetypes::kArchetypeTrader) ? 1.75f : 1.0f;
 
+	int storageBonus = 0;
+	if (root && root->spaceCombatMetrics) {
+		float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
+		for (const auto& star : empire->mStars) {
+			if (!star) continue;
+			for (const auto& pl : star->GetPlanetRecords()) {
+				if (pl && root->spaceCombatMetrics->GetPlanetGadgetInfo(pl.get()).hasSpiceStorage) {
+					storageBonus += static_cast<int>(round(40000.0f * gadgetMult));
+				}
+			}
+		}
+	}
+
 	int cycleIncome = max(static_cast<int>(round(produced * static_cast<float>(unitCost) * 0.45f * tradeMult)), 2500);
-	int starBaseCap = 50000 + static_cast<int>(empire->mStars.size()) * 25000;
+	int starBaseCap = 50000 + static_cast<int>(empire->mStars.size()) * 25000 + storageBonus;
 
 	int maxCap = static_cast<int>(round(static_cast<float>(starBaseCap + cycleIncome * 10) * tradeMult));
 	return max(maxCap, 80000);
 }
+
 
 static float GetPlanetSpicePrice(cPlanetRecord* planet)
 {
@@ -174,6 +203,14 @@ static float GetNpcPlanetaryCityUnrestFactor(cPlanetRecord* planet)
 
 	if (GetCurrentContext() != SpaceContext::Planet || planet != GetActivePlanetRecord()) {
 		return 0.0f;
+	}
+
+	cCompositionRoot* root = cCompositionRoot::Get();
+	if (root && root->spaceCombatMetrics) {
+		SdoPlanetGadgetInfo gInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(planet);
+		if (gInfo.hasHappinessBooster) {
+			return 0.0f;
+		}
 	}
 
 	const auto& cities = GetData<cCity>();
@@ -382,7 +419,14 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 		}
 	}
 
-	// 8. Cultural Subversion (Affinity with Player during combat sieges)
+	SdoPlanetGadgetInfo gadgets = root->spaceCombatMetrics->GetPlanetGadgetInfo(activePlanet);
+	float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
+
+	if (gadgets.hasUberTurret) {
+		infrastructureFactor *= 0.80f;
+	}
+
+	// 8. Cultural Subversion + Embassy + Raider Rally Panic
 	float subversionFactor = 1.0f;
 	if (!peacetimeCheck && root->empireRelationsAnalyzer && GetPlayerEmpire() && ownerEmpire != GetPlayerEmpire()) {
 		int affinityWithPlayer = root->empireRelationsAnalyzer->EmpiresAffinity(ownerEmpire, GetPlayerEmpire());
@@ -393,14 +437,28 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 		} else if (affinityWithPlayer <= -2) {
 			subversionFactor = 0.85f;
 		}
+		if (gadgets.hasEmbassy) {
+			subversionFactor *= (1.0f + 0.25f * gadgetMult); // Посольство усиливает переход гарнизона при штурме
+		}
+	} else if (peacetimeCheck && gadgets.hasEmbassy) {
+		subversionFactor *= 0.50f; // В мирное время Посольство стабилизирует колонию союзника
+	}
+
+	if (!peacetimeCheck && sRaiderRallyPanicActive) {
+		subversionFactor *= 1.35f; // Пиратский набег Воина сеет хаос в рядах обороны
 	}
 
 	float finalChance = rebellionChance * planetTierFactor * spiceFactor * infrastructureFactor * distanceFactor * subversionFactor * rebellionMultiplier;
+	if (gadgets.hasLoyaltyBooster) {
+		float suppression = min(0.90f * gadgetMult, 0.98f);
+		finalChance *= (1.0f - suppression);
+	}
 	if (peacetimeCheck) {
 		finalChance *= 0.70f;
 	}
 	return min(finalChance, 0.90f);
 }
+
 
 static bool ShouldTriggerNpcRebellion(cEmpire* ownerEmpire, cCompositionRoot* root, cGameDataUFO* newlySpawnedUfo)
 {
@@ -481,15 +539,51 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 			return ufo;
 		}
 
+		float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
 		uint32_t politicalID = static_cast<uint32_t>(*pPoliticalID);
 		cEmpire* ownerEmpire = StarManager.GetEmpire(politicalID);
+
+		// Прокачка вызванных пиратов (Raider Rally Воина): масштабируем их броню под уровень игрока!
+		if (!ownerEmpire && gadgetMult > 0.01f && GetPlayerEmpire() != nullptr) {
+			cEmpire* playerEmp = GetPlayerEmpire();
+			float raiderHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(playerEmp) * (0.90f + 0.25f * gadgetMult);
+			if (raiderHP > ufo->mMaxHealthPoints) {
+				ufo->mHealthPoints = raiderHP;
+				ufo->mMaxHealthPoints = raiderHP;
+			}
+			return ufo;
+		}
+
 		if (!ownerEmpire) {
 			return ufo;
 		}
 
-		// Player defenders are handled by Defensive Ships In Player Colonies
-		if (ufoType == UfoType::Defender && ownerEmpire == GetPlayerEmpire()) {
-			return ufo;
+		// Защитников игрока обрабатывает первый мод, но Мини-клона Рыцаря (не Defender) прокачиваем!
+		if (ownerEmpire == GetPlayerEmpire()) {
+			if (ufoType == UfoType::Defender) {
+				return ufo;
+			}
+			if (gadgetMult > 0.01f && ufoType != UfoType::Bomber) {
+				float miniCloneHP = root->spaceCombatMetrics->GetBomberHealthByEmpire(ownerEmpire) * (1.15f * gadgetMult);
+				if (miniCloneHP > ufo->mMaxHealthPoints) {
+					ufo->mHealthPoints = miniCloneHP;
+					ufo->mMaxHealthPoints = miniCloneHP;
+				}
+				return ufo;
+			}
+		}
+
+		// Если ангары врага заглушены Песней Барда или Статическим разрядом Дипломата — блокируем взлет подкрепления!
+		if (ufoType == UfoType::Defender && !sIsGeneratingInitialPlanetGarrison && GetCurrentContext() == SpaceContext::Planet) {
+			cPlanetRecord* activePlanet = GetActivePlanetRecord();
+			uint32_t nowTime = (root->persistenceState != nullptr) ? root->persistenceState->GetCurrentSpaceTime() : 0;
+			if (activePlanet && nowTime > 0) {
+				auto itJam = sNpcHangarJamCooldowns.find(activePlanet);
+				if (itJam != sNpcHangarJamCooldowns.end() && nowTime < itJam->second) {
+					ufo->mHealthPoints = 0.0f;
+					return ufo;
+				}
+			}
 		}
 
 		float customHP = 0.0f;
@@ -499,6 +593,12 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 		}
 		else if (ufoType == UfoType::Defender) {
 			customHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(ownerEmpire);
+			if (GetCurrentContext() == SpaceContext::Planet && GetActivePlanetRecord() != nullptr) {
+				SdoPlanetGadgetInfo gInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(GetActivePlanetRecord());
+				if (gInfo.hasUberTurret) {
+					customHP *= (1.0f + 0.25f * gadgetMult);
+				}
+			}
 		}
 		else if (typeInt == 4 || typeInt == 3) {
 			customHP = root->spaceCombatMetrics->GetFighterHealthByEmpire(ownerEmpire);
@@ -529,6 +629,7 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 		return ufo;
 	}
 };
+
 
 member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlanet* planet))
 {
@@ -592,7 +693,63 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 			}
 		}
 
+		sRaiderRallyPanicActive = false;
 		sIsGeneratingInitialPlanetGarrison = false;
+	}
+};
+
+static void HandlePlayerToolOnNpcPlanet(cSpaceToolData* pTool)
+{
+	if (!pTool || !IsSpaceGame() || GetCurrentContext() != SpaceContext::Planet) return;
+
+	float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
+	if (gadgetMult <= 0.01f) return;
+
+	cPlanetRecord* activePlanet = GetActivePlanetRecord();
+	if (!activePlanet || !activePlanet->GetStarRecord()) return;
+
+	uint32_t ownerId = activePlanet->GetStarRecord()->mEmpireID;
+	if (ownerId == 0 || ownerId == GetPlayerEmpireID()) return;
+
+	cEmpire* npcEmpire = StarManager.GetEmpire(ownerId);
+	if (!npcEmpire) return;
+
+	uint32_t toolId = pTool->mItemID.instanceID;
+	cCompositionRoot* root = cCompositionRoot::Get();
+	uint32_t nowTime = (root && root->persistenceState) ? root->persistenceState->GetCurrentSpaceTime() : 0;
+
+	// 1. Песнь Барда и Статический разряд Дипломата: блокируют вылет новых защитников из ангаров на 45 сек
+	if (MatchNpcToolKey(toolId, "soothingsong", "staticcling", "tool_staticcling", 0x04668B95, 0x04668B93)) {
+		if (nowTime > 0) {
+			uint32_t jamDuration = static_cast<uint32_t>(round(45000.0f * gadgetMult));
+			sNpcHangarJamCooldowns[cPlanetRecordPtr(activePlanet)] = nowTime + jamDuration;
+		}
+	}
+	// 2. Пиратский набег Воина (Raider Rally): включает режим паники для гарнизона врага
+	else if (MatchNpcToolKey(toolId, "raiderrally", "pirateraid", "tool_raiderrally", 0x04668B92, 0x03F3E498)) {
+		sRaiderRallyPanicActive = true;
+	}
+	// 3. Помощь союзнику: Стиратель памяти / Луч счастья / Фейерверк усмиряют мятежников на планете друга!
+	else if (!RelationshipManager.IsAtWar(npcEmpire, GetPlayerEmpire()) &&
+	         (MatchNpcToolKey(toolId, "minderase", "globalminderase", "happyray", 0x03F3E491, 0x03F3E481) ||
+	          MatchNpcToolKey(toolId, "fireworks", "superhappyray", nullptr, 0x03F3E480, 0x04668B81))) {
+		const auto& ufos = GetData<cGameDataUFO>();
+		for (const auto& ufo : ufos) {
+			if (ufo && ufo->mHealthPoints > 0 && ufo->mPoliticalID == 0xFFFFFFFF && ufo->mUFOType == static_cast<int>(UfoType::Bomber)) {
+				ufo->mPoliticalID = npcEmpire->mPoliticalID;
+				ufo->mUFOType = static_cast<int>(UfoType::Defender);
+			}
+		}
+	}
+}
+
+member_detour(NpcToolOnHit__detour, cToolStrategy, bool(cSpaceToolData*, const Math::Vector3&, SpaceToolHit, int))
+{
+	bool detoured(cSpaceToolData* pTool, const Math::Vector3& position, SpaceToolHit hitType, int unk)
+	{
+		bool res = original_function(this, pTool, position, hitType, unk);
+		HandlePlayerToolOnNpcPlanet(pTool);
+		return res;
 	}
 };
 
@@ -609,6 +766,7 @@ void AttachDetours()
 	ShouldSpawnRaiderUFO__detour::attach(Address(ModAPI::ChooseAddress(0x00c5adc0, 0x00c5b860)));
 	SpawnUFO__detour::attach(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)));
 	GenerateNpcPlanetDefenders__detour::attach(Address(ModAPI::ChooseAddress(0x00ffa340, 0x00ff96b0)));
+	NpcToolOnHit__detour::attach(GetAddress(cToolStrategy, OnHit));
 }
 
 // Generally, you don't need to touch any code here
