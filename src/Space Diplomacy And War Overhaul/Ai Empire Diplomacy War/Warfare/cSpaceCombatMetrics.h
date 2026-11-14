@@ -86,6 +86,7 @@ public:
 	int ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire* empire, int baseUnitCost, float tradeRange);
 	int BreakTradeRoutesOnWar(Simulator::cEmpire* emp1, Simulator::cEmpire* emp2, int baseUnitCost);
 	Simulator::cEmpire* GetStarActiveTradePartner(Simulator::cStarRecord* star, bool& outBlockaded);
+	bool StarHasAnyActiveTradeRoute(Simulator::cStarRecord* star, bool& outBlockaded);
 
 	void ExportStateToPersistence(cPersistenceState* state);
 	void ImportStateFromPersistence(const cPersistenceState* state);
