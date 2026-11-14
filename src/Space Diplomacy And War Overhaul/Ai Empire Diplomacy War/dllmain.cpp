@@ -7,6 +7,7 @@
 #include "Diplomacy\cDiplomacySystem.h"
 #include <Spore/App/cCameraManager.h>
 #include <Spore/Swarm/cEffectsManager.h>
+#include <Spore/Audio/AudioSystem.h>
 #include <Spore/Simulator/cCity.h>
 #include <Spore/Simulator/cBuilding.h>
 #include <Spore/Simulator/cSpaceToolData.h>
@@ -106,6 +107,17 @@ public:
 				if (cargoOwner && cargoOwner != playerEmp && RelationshipManager.IsAtWar(cargoOwner, playerEmp)) {
 					playerEmp->mEmpireMoney += lootAmount;
 					cargoOwner->mEmpireMoney = max(cargoOwner->mEmpireMoney - lootAmount, 0);
+
+					// 1. Звуковой сигнал кассы спорлингов при грабеже каравана
+					Audio::PlayAudio(id("ui_space_money_gain"));
+					Audio::PlayAudio(id("spc_trade_sell"));
+
+					// 2. Визуальная вспышка трофея прямо на координатах сбитого транспорта
+					IVisualEffectPtr lootFx;
+					if (EffectsManager.CreateVisualEffect(id("spc_collect_rare"), 0, lootFx) && lootFx != nullptr) {
+						lootFx->SetSourceTransform(Transform().SetOffset(deadUfo->GetPosition()));
+						lootFx->Start();
+					}
 				} else if (cargoOwner) {
 					cargoOwner->mEmpireMoney = max(cargoOwner->mEmpireMoney - lootAmount, 0);
 				}
@@ -709,11 +721,31 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 
 			float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
 
-			// 0. Грузовой караван внешнего торгового партнера в 3D-атмосфере планеты
+			// 0. Грузовые караваны в 3D-атмосфере планеты (родной транспорт хозяина + корабль внешнего партнера)
 			if (planetEmpire && root && root->spaceCombatMetrics && pRec->GetStarRecord()) {
-				bool routeBlockaded = false;
-				cEmpire* tradePartner = root->spaceCombatMetrics->GetStarActiveTradePartner(pRec->GetStarRecord(), routeBlockaded);
-				if (tradePartner && !routeBlockaded && !RelationshipManager.IsAtWar(tradePartner, planetEmpire)) {
+				bool anyBlockaded = false;
+				bool hasAnyTrade = root->spaceCombatMetrics->StarHasAnyActiveTradeRoute(pRec->GetStarRecord(), anyBlockaded);
+
+				// А) Собственный груженый транспорт хозяина планеты (можно грабить в любой войне 1 на 1!)
+				if (hasAnyTrade && !anyBlockaded && planetEmpire != GetPlayerEmpire()) {
+					int* pLocalPolID = &planetEmpire->mPoliticalID;
+					ResourceKey* pLocalKey = &planetEmpire->mUFOKey;
+					cGameDataUFO* localFreighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+						cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+						Args(UfoType::Defender, pLocalPolID, pLocalKey));
+					if (localFreighter) {
+						float localCargoHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(planetEmpire) * 1.50f;
+						localFreighter->mHealthPoints = localCargoHP;
+						localFreighter->mMaxHealthPoints = localCargoHP;
+						localFreighter->SetScale(localFreighter->GetScale() * 1.30f);
+						sActiveTradeFreighters.insert(localFreighter);
+					}
+				}
+
+				// Б) Гостевой корабль иностранного торгового партнера
+				bool partnerBlockaded = false;
+				cEmpire* tradePartner = root->spaceCombatMetrics->GetStarActiveTradePartner(pRec->GetStarRecord(), partnerBlockaded);
+				if (tradePartner && !partnerBlockaded && !RelationshipManager.IsAtWar(tradePartner, planetEmpire)) {
 					int* pPartnerPolID = &tradePartner->mPoliticalID;
 					ResourceKey* pPartnerKey = &tradePartner->mUFOKey;
 					cGameDataUFO* freighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
@@ -728,6 +760,7 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 					}
 				}
 			}
+
 
 			// 1. Дипломатический Крейсер Посольства ИИ на планете ИГРОКА
 			if (planetEmpire && planetEmpire == GetPlayerEmpire() && root && root->spaceCombatMetrics && gadgetMult > 0.01f) {
