@@ -7,9 +7,6 @@
 
 #define cPersistenceStatePtr intrusive_ptr<cPersistenceState>
 
-/// Stores metadata for the mod, such as the mod's version of the last save,
-/// the instanceID of the next cPersistedObject to be created, the current
-/// space stage time, AI gadget investments, and cached Unlimited-Colony defenses.
 class cPersistenceState
 	: public cPersistedObject
 	, public ISpaceTimeProvider
@@ -29,24 +26,23 @@ public:
 
 	eastl::string16 GetModVersion() const;
 	void SetModVersion(eastl::string16 modVersion);
-
-	/// Returns nextInstanceID and increments it by one.
 	uint32_t GetNextInstanceID();
-
 	uint32_t GetCurrentSpaceTime() override;
-
-	/// Increments 'spaceStageTime' by 'deltaGameTime'.
 	void IncrementSpaceTime(uint32_t deltaGameTime);
 
-	// Сериализуемые массивы покупок ИИ (по PlanetID.internalValue)
+	// Покупки ИИ (по PlanetID.internalValue)
 	eastl::vector<uint32_t> aiGadgetPlanetIDs;
 	eastl::vector<uint32_t> aiGadgetFlags;
 	eastl::vector<uint32_t> aiGadgetEmbassyEmpires;
 
-	// Сериализуемый кэш посещенных планет Unlimited-Colony (города и турели)
+	// Кэш посещенных планет Unlimited-Colony (города и турели)
 	eastl::vector<uint32_t> cachedDefensePlanetIDs;
 	eastl::vector<int> cachedDefenseCities;
 	eastl::vector<int> cachedDefenseTurrets;
+
+	// Галактическая торговая сеть (пары StarID.internalValue)
+	eastl::vector<uint32_t> tradeRouteStarA;
+	eastl::vector<uint32_t> tradeRouteStarB;
 
 private:
 	eastl::string16 modVersion;
