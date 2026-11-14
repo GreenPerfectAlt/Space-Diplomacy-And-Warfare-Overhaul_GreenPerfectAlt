@@ -721,42 +721,54 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 
 			float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
 
-			// 0. Грузовые караваны в 3D-атмосфере планеты (родной транспорт хозяина + корабль внешнего партнера)
+			// 0. Динамические 3D-караваны (число, размер и броня зависят от пряности, городов, Т-индекса и TradeConfig.prop)
 			if (planetEmpire && root && root->spaceCombatMetrics && pRec->GetStarRecord()) {
 				bool anyBlockaded = false;
 				bool hasAnyTrade = root->spaceCombatMetrics->StarHasAnyActiveTradeRoute(pRec->GetStarRecord(), anyBlockaded);
 
-				// А) Собственный груженый транспорт хозяина планеты (можно грабить в любой войне 1 на 1!)
+				// А) Собственная флотилия груженых транспортов хозяина планеты
 				if (hasAnyTrade && !anyBlockaded && planetEmpire != GetPlayerEmpire()) {
+					int localCount = 0;
+					float localScale = 1.0f, localHpMult = 1.0f;
+					root->spaceCombatMetrics->CalculateDynamicConvoySpecs(pRec, planetEmpire, localCount, localScale, localHpMult);
+
 					int* pLocalPolID = &planetEmpire->mPoliticalID;
 					ResourceKey* pLocalKey = &planetEmpire->mUFOKey;
-					cGameDataUFO* localFreighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
-						cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
-						Args(UfoType::Defender, pLocalPolID, pLocalKey));
-					if (localFreighter) {
-						float localCargoHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(planetEmpire) * 1.50f;
-						localFreighter->mHealthPoints = localCargoHP;
-						localFreighter->mMaxHealthPoints = localCargoHP;
-						localFreighter->SetScale(localFreighter->GetScale() * 1.30f);
-						sActiveTradeFreighters.insert(localFreighter);
+					for (int c = 0; c < localCount; ++c) {
+						cGameDataUFO* localFreighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+							cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+							Args(UfoType::Defender, pLocalPolID, pLocalKey));
+						if (localFreighter) {
+							float cargoHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(planetEmpire) * localHpMult;
+							localFreighter->mHealthPoints = cargoHP;
+							localFreighter->mMaxHealthPoints = cargoHP;
+							localFreighter->SetScale(localFreighter->GetScale() * localScale);
+							sActiveTradeFreighters.insert(localFreighter);
+						}
 					}
 				}
 
-				// Б) Гостевой корабль иностранного торгового партнера
+				// Б) Гостевая флотилия внешнего торгового партнера (включая ванильные синие линии Spore!)
 				bool partnerBlockaded = false;
 				cEmpire* tradePartner = root->spaceCombatMetrics->GetStarActiveTradePartner(pRec->GetStarRecord(), partnerBlockaded);
 				if (tradePartner && !partnerBlockaded && !RelationshipManager.IsAtWar(tradePartner, planetEmpire)) {
+					int partnerCount = 0;
+					float partnerScale = 1.0f, partnerHpMult = 1.0f;
+					root->spaceCombatMetrics->CalculateDynamicConvoySpecs(pRec, tradePartner, partnerCount, partnerScale, partnerHpMult);
+
 					int* pPartnerPolID = &tradePartner->mPoliticalID;
 					ResourceKey* pPartnerKey = &tradePartner->mUFOKey;
-					cGameDataUFO* freighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
-						cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
-						Args(UfoType::Defender, pPartnerPolID, pPartnerKey));
-					if (freighter) {
-						float cargoHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(tradePartner) * 1.40f;
-						freighter->mHealthPoints = cargoHP;
-						freighter->mMaxHealthPoints = cargoHP;
-						freighter->SetScale(freighter->GetScale() * 1.25f);
-						sActiveTradeFreighters.insert(freighter);
+					for (int c = 0; c < partnerCount; ++c) {
+						cGameDataUFO* freighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+							cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+							Args(UfoType::Defender, pPartnerPolID, pPartnerKey));
+						if (freighter) {
+							float cargoHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(tradePartner) * partnerHpMult;
+							freighter->mHealthPoints = cargoHP;
+							freighter->mMaxHealthPoints = cargoHP;
+							freighter->SetScale(freighter->GetScale() * partnerScale);
+							sActiveTradeFreighters.insert(freighter);
+						}
 					}
 				}
 			}
