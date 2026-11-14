@@ -13,10 +13,10 @@ struct SdoPlanetGadgetInfo {
 	bool hasSpiceStorage = false;
 	bool hasBioProtector = false;
 	bool hasEmbassy = false;
+	uint32_t aiEmbassyEmpireID = 0;
 };
 
 // Stores unit and defense stats used in space combat and
-
 // calculates those values given specific empires or planets.
 class cSpaceCombatMetrics 
 	: public Object
@@ -53,11 +53,12 @@ public:
 	int GetDefendersInPlanet(Simulator::cPlanetRecord* planet);
 	int GetTurretsInPlanet(Simulator::cPlanetRecord* planet);
 
-	// Кэш посещенных планет для Unlimited-Colony и построек колонизации
+	// Кэш посещенных планет для Unlimited-Colony и реестр инвестиций ИИ в постройки/посольства
 	void UpdatePlanetDefenseCache(Simulator::cPlanetRecord* planet);
 	int GetCachedCityCount(Simulator::cPlanetRecord* planet) const;
 	int GetCachedTurretCount(Simulator::cPlanetRecord* planet) const;
 	SdoPlanetGadgetInfo GetPlanetGadgetInfo(Simulator::cPlanetRecord* planet);
+	void RegisterAiGadgetPurchase(Simulator::cPlanetRecord* planet, const SdoPlanetGadgetInfo& purchasedInfo);
 
 	eastl::vector<float> healthBomber;
 	eastl::vector<float> healthFighter;
@@ -75,4 +76,5 @@ public:
 private:
 	eastl::map<cPlanetRecordPtr, eastl::pair<int, int>> planetDefenseCache;
 	eastl::map<cPlanetRecordPtr, SdoPlanetGadgetInfo> planetGadgetCache;
+	eastl::map<cPlanetRecordPtr, SdoPlanetGadgetInfo> aiPurchasedGadgets;
 };
