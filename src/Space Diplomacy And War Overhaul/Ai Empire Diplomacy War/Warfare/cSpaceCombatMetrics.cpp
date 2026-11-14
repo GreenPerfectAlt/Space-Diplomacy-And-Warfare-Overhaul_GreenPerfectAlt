@@ -1,5 +1,7 @@
 #include "stdafx.h"
 #include "cSpaceCombatMetrics.h"
+#include "../cPersistenceState.h"
+#include "../cDatabaseManager.h"
 #include <Spore-Mod-Utils/Include/SporeModUtils.h>
 #include <Spore/Simulator/cCity.h>
 #include <cmath>
@@ -7,8 +9,44 @@
 using namespace SporeModUtils;
 using namespace Simulator;
 
+enum AiGadgetBitFlags : uint32_t {
+	kFlagLoyaltyBooster   = 1 << 0,
+	kFlagHappinessBooster = 1 << 1,
+	kFlagUberTurret       = 1 << 2,
+	kFlagSpiceStorage     = 1 << 3,
+	kFlagBioProtector     = 1 << 4,
+	kFlagEmbassy          = 1 << 5
+};
+
+static uint32_t PackGadgetFlags(const SdoPlanetGadgetInfo& info)
+{
+	uint32_t flags = 0;
+	if (info.hasLoyaltyBooster)   flags |= kFlagLoyaltyBooster;
+	if (info.hasHappinessBooster) flags |= kFlagHappinessBooster;
+	if (info.hasUberTurret)       flags |= kFlagUberTurret;
+	if (info.hasSpiceStorage)     flags |= kFlagSpiceStorage;
+	if (info.hasBioProtector)     flags |= kFlagBioProtector;
+	if (info.hasEmbassy)          flags |= kFlagEmbassy;
+	return flags;
+}
+
+static SdoPlanetGadgetInfo UnpackGadgetFlags(uint32_t flags, uint32_t embassyEmpireID)
+{
+	SdoPlanetGadgetInfo info;
+	info.hasLoyaltyBooster   = (flags & kFlagLoyaltyBooster) != 0;
+	info.hasHappinessBooster = (flags & kFlagHappinessBooster) != 0;
+	info.hasUberTurret       = (flags & kFlagUberTurret) != 0;
+	info.hasSpiceStorage     = (flags & kFlagSpiceStorage) != 0;
+	info.hasBioProtector     = (flags & kFlagBioProtector) != 0;
+	info.hasEmbassy          = (flags & kFlagEmbassy) != 0;
+	info.aiEmbassyEmpireID   = embassyEmpireID;
+	return info;
+}
+
 cSpaceCombatMetrics::cSpaceCombatMetrics(ResourceKey spaceCombatKey)
 {
+	persistenceImported = false;
+
 	PropertyListPtr spaceCombatProp;
 	PropManager.GetPropertyList(spaceCombatKey.instanceID, spaceCombatKey.groupID, spaceCombatProp);
 	App::Property::GetArrayFloat(spaceCombatProp.get(), 0x033B0A90, healthBomber);
@@ -73,6 +111,84 @@ void* cSpaceCombatMetrics::Cast(uint32_t type) const
 	return nullptr;
 }
 
+void cSpaceCombatMetrics::EnsurePersistenceLoaded()
+{
+	if (persistenceImported || !IsSpaceGame()) return;
+
+	cDatabaseManager* dbMgr = cDatabaseManager::Get();
+	if (dbMgr != nullptr) {
+		cPersistenceState* state = dbMgr->GetPersistenceState();
+		if (state != nullptr) {
+			ImportStateFromPersistence(state);
+		}
+	}
+}
+
+void cSpaceCombatMetrics::ExportStateToPersistence(cPersistenceState* state)
+{
+	if (state == nullptr) return;
+
+	EnsurePersistenceLoaded();
+
+	state->aiGadgetPlanetIDs.clear();
+	state->aiGadgetFlags.clear();
+	state->aiGadgetEmbassyEmpires.clear();
+
+	for (const auto& kv : aiPurchasedGadgets) {
+		if (kv.first == nullptr) continue;
+		uint32_t pid = kv.first->GetID().internalValue;
+		uint32_t flags = PackGadgetFlags(kv.second);
+		if (pid == 0 || (flags == 0 && kv.second.aiEmbassyEmpireID == 0)) continue;
+
+		state->aiGadgetPlanetIDs.push_back(pid);
+		state->aiGadgetFlags.push_back(flags);
+		state->aiGadgetEmbassyEmpires.push_back(kv.second.aiEmbassyEmpireID);
+	}
+
+	state->cachedDefensePlanetIDs.clear();
+	state->cachedDefenseCities.clear();
+	state->cachedDefenseTurrets.clear();
+
+	for (const auto& kv : planetDefenseCache) {
+		if (kv.first == nullptr) continue;
+		uint32_t pid = kv.first->GetID().internalValue;
+		if (pid == 0 || kv.second.first <= 0) continue;
+
+		state->cachedDefensePlanetIDs.push_back(pid);
+		state->cachedDefenseCities.push_back(kv.second.first);
+		state->cachedDefenseTurrets.push_back(kv.second.second);
+	}
+}
+
+void cSpaceCombatMetrics::ImportStateFromPersistence(const cPersistenceState* state)
+{
+	if (state == nullptr || !IsSpaceGame()) return;
+
+	persistenceImported = true;
+
+	size_t gadgetCount = min(state->aiGadgetPlanetIDs.size(), state->aiGadgetFlags.size());
+	for (size_t i = 0; i < gadgetCount; ++i) {
+		PlanetID pid(state->aiGadgetPlanetIDs[i]);
+		cPlanetRecord* planet = StarManager.GetPlanetRecord(pid);
+		if (planet == nullptr) continue;
+
+		uint32_t embID = (i < state->aiGadgetEmbassyEmpires.size()) ? state->aiGadgetEmbassyEmpires[i] : 0;
+		SdoPlanetGadgetInfo unpacked = UnpackGadgetFlags(state->aiGadgetFlags[i], embID);
+		RegisterAiGadgetPurchase(planet, unpacked);
+	}
+
+	size_t cacheCount = min(state->cachedDefensePlanetIDs.size(), min(state->cachedDefenseCities.size(), state->cachedDefenseTurrets.size()));
+	for (size_t i = 0; i < cacheCount; ++i) {
+		PlanetID pid(state->cachedDefensePlanetIDs[i]);
+		cPlanetRecord* planet = StarManager.GetPlanetRecord(pid);
+		if (planet == nullptr) continue;
+
+		if (planetDefenseCache.find(cPlanetRecordPtr(planet)) == planetDefenseCache.end()) {
+			planetDefenseCache[cPlanetRecordPtr(planet)] = eastl::make_pair(state->cachedDefenseCities[i], state->cachedDefenseTurrets[i]);
+		}
+	}
+}
+
 static bool MatchSdoGadgetKey(uint32_t idVal, const char* n1, const char* n2, const char* n3 = nullptr, uint32_t raw1 = 0, uint32_t raw2 = 0)
 {
 	if (idVal == 0) return false;
@@ -111,6 +227,8 @@ void cSpaceCombatMetrics::RegisterAiGadgetPurchase(Simulator::cPlanetRecord* pla
 void cSpaceCombatMetrics::UpdatePlanetDefenseCache(Simulator::cPlanetRecord* planet)
 {
 	if (planet == nullptr) return;
+
+	EnsurePersistenceLoaded();
 
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
 		int cityCount = 0;
@@ -160,6 +278,9 @@ SdoPlanetGadgetInfo cSpaceCombatMetrics::GetPlanetGadgetInfo(Simulator::cPlanetR
 	if (planet == nullptr || GetExternalGadgetMultiplier() <= 0.01f) {
 		return mergedInfo;
 	}
+
+	EnsurePersistenceLoaded();
+
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
 		UpdatePlanetDefenseCache(planet);
 	}
@@ -183,9 +304,10 @@ SdoPlanetGadgetInfo cSpaceCombatMetrics::GetPlanetGadgetInfo(Simulator::cPlanetR
 	return mergedInfo;
 }
 
-int cSpaceCombatMetrics::GetCachedCityCount(Simulator::cPlanetRecord* planet) const
+int cSpaceCombatMetrics::GetCachedCityCount(Simulator::cPlanetRecord* planet)
 {
 	if (planet == nullptr) return 0;
+	EnsurePersistenceLoaded();
 	auto it = planetDefenseCache.find(cPlanetRecordPtr(planet));
 	if (it != planetDefenseCache.end()) {
 		return it->second.first;
@@ -193,9 +315,10 @@ int cSpaceCombatMetrics::GetCachedCityCount(Simulator::cPlanetRecord* planet) co
 	return 0;
 }
 
-int cSpaceCombatMetrics::GetCachedTurretCount(Simulator::cPlanetRecord* planet) const
+int cSpaceCombatMetrics::GetCachedTurretCount(Simulator::cPlanetRecord* planet)
 {
 	if (planet == nullptr) return 0;
+	EnsurePersistenceLoaded();
 	auto it = planetDefenseCache.find(cPlanetRecordPtr(planet));
 	if (it != planetDefenseCache.end()) {
 		return it->second.second;
