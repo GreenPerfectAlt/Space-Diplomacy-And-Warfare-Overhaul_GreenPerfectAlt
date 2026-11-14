@@ -259,9 +259,15 @@ int cSpaceCombatMetrics::GetActiveTradeRoutesBetweenEmpires(Simulator::cEmpire* 
 	uint32_t id2 = emp2->GetEmpireID();
 	int count = 0;
 
-	if (RelationshipManager.IsTrading(emp1, emp2)) {
-		count++;
+	for (const auto& st1 : emp1->mStars) {
+		if (!st1) continue;
+		for (const auto& st2 : emp2->mStars) {
+			if (st2 && StarManager.HasTradeRoute(st1->GetID(), st2->GetID())) {
+				count++;
+			}
+		}
 	}
+
 
 	for (const auto& route : galacticTradeRoutes) {
 		cStarRecord* sA = StarManager.GetStarRecord(StarID(route.starIdA));
@@ -473,23 +479,30 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 
 	EnsurePersistenceLoaded();
 
-	// 1. Проверяем активные ванильные торговые пути Spore (синие линии на карте галактики через IsTrading)
+	// 1. Проверяем настоящие ванильные торговые пути Spore для ЭТОЙ звезды (StarManager.HasTradeRoute)
 	cEmpire* starOwner = StarManager.GetEmpire(star->mEmpireID);
 	cEmpire* playerEmp = GetPlayerEmpire();
 	if (starOwner && playerEmp) {
-		if (starOwner != playerEmp && RelationshipManager.IsTrading(playerEmp, starOwner)) {
-			outBlockaded = IsStarBlockaded(star);
-			return playerEmp;
-		}
-		if (starOwner == playerEmp) {
+		if (starOwner != playerEmp) {
+			for (const auto& pStar : playerEmp->mStars) {
+				if (pStar && StarManager.HasTradeRoute(star->GetID(), pStar->GetID())) {
+					outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(pStar.get());
+					return playerEmp;
+				}
+			}
+		} else {
 			for (const auto& allyPtr : playerEmp->mAllies) {
-				if (allyPtr != nullptr && RelationshipManager.IsTrading(playerEmp, allyPtr.get())) {
-					outBlockaded = IsStarBlockaded(star);
-					return allyPtr.get();
+				if (!allyPtr) continue;
+				for (const auto& aStar : allyPtr->mStars) {
+					if (aStar && StarManager.HasTradeRoute(star->GetID(), aStar->GetID())) {
+						outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(aStar.get());
+						return allyPtr.get();
+					}
 				}
 			}
 		}
 	}
+
 
 	// 2. Проверяем динамическую сеть маршрутов мода
 	uint32_t targetStarId = star->GetID().internalValue;
