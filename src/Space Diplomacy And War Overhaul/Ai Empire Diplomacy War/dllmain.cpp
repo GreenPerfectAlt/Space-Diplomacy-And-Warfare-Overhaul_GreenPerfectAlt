@@ -38,8 +38,6 @@ using namespace Simulator;
 
 void Initialize()
 {
-	// CheatManager.AddCheat("DebugDiplomacy", new DebugDiplomacy());
-	// CheatManager.AddCheat("DebugWarfare", new DebugWarfare());
 	cSimulatorSystem::Get()->AddStrategy(new cCompositionRoot(), cCompositionRoot::NOUN_ID);
 	cSimulatorSystem::Get()->AddStrategy(new cDiplomacySystem(), cDiplomacySystem::NOUN_ID);
 	cSimulatorSystem::Get()->AddStrategy(new cWarfareSystem(), cWarfareSystem::NOUN_ID);
@@ -60,7 +58,6 @@ void Initialize()
 
 void Dispose()
 {
-	// This method is called when the game is closing
 }
 
 member_detour(ShouldSpawnRaiderUFO__detour, cRaidEvent, bool())
@@ -173,7 +170,6 @@ static int GetDynamicMaxTreasuryForEmpire(cEmpire* empire, cCompositionRoot* roo
 	return max(maxCap, 80000);
 }
 
-
 static float GetPlanetSpicePrice(cPlanetRecord* planet)
 {
 	if (!planet) return 0.0f;
@@ -189,9 +185,9 @@ static float GetPlanetSpicePrice(cPlanetRecord* planet)
 		}
 	}
 
-	if (spiceID == 0x0289B841 || spiceID == 0x0289B842) return 3000.0f; // Purple, Pink
-	if (spiceID == 0x0289B83F || spiceID == 0x0289B840) return 1200.0f; // Blue, Green
-	return 300.0f; // Red, Yellow
+	if (spiceID == 0x0289B841 || spiceID == 0x0289B842) return 3000.0f;
+	if (spiceID == 0x0289B83F || spiceID == 0x0289B840) return 1200.0f;
+	return 300.0f;
 }
 
 static float GetNpcPlanetaryCityUnrestFactor(cPlanetRecord* planet)
@@ -206,8 +202,9 @@ static float GetNpcPlanetaryCityUnrestFactor(cPlanetRecord* planet)
 	}
 
 	cCompositionRoot* root = cCompositionRoot::Get();
+	SdoPlanetGadgetInfo gInfo;
 	if (root && root->spaceCombatMetrics) {
-		SdoPlanetGadgetInfo gInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(planet);
+		gInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(planet);
 		if (gInfo.hasHappinessBooster) {
 			return 0.0f;
 		}
@@ -246,8 +243,12 @@ static float GetNpcPlanetaryCityUnrestFactor(cPlanetRecord* planet)
 		factoryStrain = min(static_cast<float>(excessFactories) * 0.06f, 0.45f);
 	}
 
-	float rawUnrest = min(unhappyScore + factoryStrain, 1.0f);
-	return min(rawUnrest * unrestMult, 1.5f);
+	float rawUnrest = min(unhappyScore + factoryStrain, 1.0f) * unrestMult;
+	if (gInfo.hasBioProtector && rawUnrest > 0.0f) {
+		float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
+		rawUnrest *= max(0.20f, 1.0f - 0.30f * gadgetMult);
+	}
+	return min(rawUnrest, 1.5f);
 }
 
 static bool IsNpcPlanetInCombat(cPlanetRecord* planet, cEmpire* ownerEmpire)
@@ -264,7 +265,7 @@ static bool IsNpcPlanetInCombat(cPlanetRecord* planet, cEmpire* ownerEmpire)
 		if (ufo && ufo->mHealthPoints > 0 && ufo->mPoliticalID != 0 && ufo->mPoliticalID != ownerEmpire->GetEmpireID()) {
 			cEmpire* otherEmp = StarManager.GetEmpire(ufo->mPoliticalID);
 			if (!otherEmp) {
-				return true; // Pirates or active rebel separatists
+				return true;
 			}
 			if (RelationshipManager.IsAtWar(ownerEmpire, otherEmp)) {
 				return true;
@@ -285,13 +286,11 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 		return 0.0f;
 	}
 
-	// 1. Zealots and Grox never rebel
 	Simulator::Archetypes baseArch = ArchetypeUtils::GetBaseArchetype(ownerEmpire->mArchetype);
 	if (baseArch == Archetypes::kArchetypeZealot || baseArch == Archetypes::kArchetypeGrob) {
 		return 0.0f;
 	}
 
-	// 2. Crisis checks: bankruptcy (if upkeep enabled), city strikes, or combat losses
 	float upkeepMult = ReadExternalConfigFloat(u"UpkeepConfig", 0x07A1BC03, 1.0f);
 	int maxCap = GetDynamicMaxTreasuryForEmpire(ownerEmpire, root);
 	int crisisThreshold = static_cast<int>(round(static_cast<float>(maxCap) * 0.15f));
@@ -316,59 +315,34 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 	}
 
 	if (peacetimeCheck) {
-		if (!isBankrupt && !severeCityStrike) {
-			return 0.0f;
-		}
-		// Capital homeworlds don't randomly revolt in peacetime unless severe strikes hit
-		if (PlanetUtils::Homeworld(activePlanet) && !severeCityStrike) {
-			return 0.0f;
-		}
+		if (!isBankrupt && !severeCityStrike) return 0.0f;
+		if (PlanetUtils::Homeworld(activePlanet) && !severeCityStrike) return 0.0f;
 	} else {
-		if (!isBankrupt && !heavyLosses && !severeCityStrike) {
-			return 0.0f;
-		}
+		if (!isBankrupt && !heavyLosses && !severeCityStrike) return 0.0f;
 	}
 
-	// 3. Base philosophy rebellion rate
 	float rebellionChance = 0.25f;
-	if (baseArch == Archetypes::kArchetypeWarrior) {
-		rebellionChance = 0.50f;
-	} else if (baseArch == Archetypes::kArchetypeTrader) {
-		rebellionChance = 0.40f;
-	} else if (baseArch == Archetypes::kArchetypeScientist || baseArch == Archetypes::kArchetypeEcologist) {
-		rebellionChance = 0.15f;
-	} else if (baseArch == Archetypes::kArchetypeDiplomat || baseArch == Archetypes::kArchetypeBard || baseArch == Archetypes::kArchetypeShaman) {
-		rebellionChance = 0.20f;
-	}
+	if (baseArch == Archetypes::kArchetypeWarrior) rebellionChance = 0.50f;
+	else if (baseArch == Archetypes::kArchetypeTrader) rebellionChance = 0.40f;
+	else if (baseArch == Archetypes::kArchetypeScientist || baseArch == Archetypes::kArchetypeEcologist) rebellionChance = 0.15f;
+	else if (baseArch == Archetypes::kArchetypeDiplomat || baseArch == Archetypes::kArchetypeBard || baseArch == Archetypes::kArchetypeShaman) rebellionChance = 0.20f;
 
 	if (severeCityStrike) {
 		rebellionChance += cityUnrest * 0.20f;
 	}
 
-	// 4. Local Terraforming Tier & Homeworld Loyalty
 	float planetTierFactor = 1.0f;
-	if (PlanetUtils::Homeworld(activePlanet)) {
-		planetTierFactor = 0.20f;
-	} else if (activePlanet->mType == PlanetType::T0) {
-		planetTierFactor = 1.55f;
-	} else if (activePlanet->mType == PlanetType::T1) {
-		planetTierFactor = 1.25f;
-	} else if (activePlanet->mType == PlanetType::T3) {
-		planetTierFactor = 0.60f;
-	}
+	if (PlanetUtils::Homeworld(activePlanet)) planetTierFactor = 0.20f;
+	else if (activePlanet->mType == PlanetType::T0) planetTierFactor = 1.55f;
+	else if (activePlanet->mType == PlanetType::T1) planetTierFactor = 1.25f;
+	else if (activePlanet->mType == PlanetType::T3) planetTierFactor = 0.60f;
 
-	// 5. Local Spice Valuation
 	float spiceFactor = 1.0f;
 	float spicePrice = GetPlanetSpicePrice(activePlanet);
-	if (spicePrice > 3500.0f) {
-		spiceFactor = 0.65f;
-	} else if (spicePrice >= 2000.0f) {
-		spiceFactor = 0.75f;
-	} else if (spicePrice > 0.0f && spicePrice <= 450.0f) {
-		spiceFactor = 1.15f;
-	}
+	if (spicePrice > 3500.0f) spiceFactor = 0.65f;
+	else if (spicePrice >= 2000.0f) spiceFactor = 0.75f;
+	else if (spicePrice > 0.0f && spicePrice <= 450.0f) spiceFactor = 1.15f;
 
-	// 6. City & Turret Garrison Control (Unlimited-Colony aware)
 	int cityCount = 1;
 	int turretCount = 0;
 	const auto& cities = GetData<cCity>();
@@ -379,21 +353,11 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 			turretCount += static_cast<int>(city->mTurrets.size());
 		}
 	}
-	if (loadedCities > 0) {
-		cityCount = loadedCities;
-	}
+	if (loadedCities > 0) cityCount = loadedCities;
 
-	float infrastructureFactor = 1.0f;
-	if (cityCount <= 1) {
-		infrastructureFactor = 1.15f;
-	} else {
-		infrastructureFactor = max(1.0f - static_cast<float>(cityCount - 1) * 0.08f, 0.50f);
-	}
-	if (turretCount >= 12) {
-		infrastructureFactor *= 0.85f;
-	}
+	float infrastructureFactor = (cityCount <= 1) ? 1.15f : max(1.0f - static_cast<float>(cityCount - 1) * 0.08f, 0.50f);
+	if (turretCount >= 12) infrastructureFactor *= 0.85f;
 
-	// 7. Distance from Capital & Philosophy Frontier Doctrine
 	float distanceFactor = 1.0f;
 	cStarRecord* homeStar = EmpireUtils::GetHomeStar(ownerEmpire);
 	cStarRecord* currentStar = activePlanet->GetStarRecord();
@@ -403,84 +367,80 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 		if (coreRadius <= 0.0f) coreRadius = 12.0f;
 
 		if (baseArch == Archetypes::kArchetypeWarrior || baseArch == Archetypes::kArchetypeTrader) {
-			if (dist > coreRadius) {
-				distanceFactor = min(1.0f + (dist - coreRadius) * 0.03f, 1.60f);
-			}
+			if (dist > coreRadius) distanceFactor = min(1.0f + (dist - coreRadius) * 0.03f, 1.60f);
 		} else if (baseArch == Archetypes::kArchetypeDiplomat || baseArch == Archetypes::kArchetypeEcologist ||
 		           baseArch == Archetypes::kArchetypeBard || baseArch == Archetypes::kArchetypeShaman) {
-			if (dist > coreRadius * 0.8f) {
-				distanceFactor = max(1.0f - (dist - coreRadius * 0.8f) * 0.02f, 0.65f);
-			}
+			if (dist > coreRadius * 0.8f) distanceFactor = max(1.0f - (dist - coreRadius * 0.8f) * 0.02f, 0.65f);
 		} else if (baseArch == Archetypes::kArchetypeScientist) {
 			float relayRange = max(coreRadius * 1.8f, 25.0f);
-			if (dist > relayRange) {
-				distanceFactor = min(1.0f + (dist - relayRange) * 0.015f, 1.20f);
-			}
+			if (dist > relayRange) distanceFactor = min(1.0f + (dist - relayRange) * 0.015f, 1.20f);
 		}
 	}
 
 	SdoPlanetGadgetInfo gadgets = root->spaceCombatMetrics->GetPlanetGadgetInfo(activePlanet);
 	float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
-
 	if (gadgets.hasUberTurret) {
 		infrastructureFactor *= 0.80f;
 	}
 
-	// 8. Cultural Subversion + Embassy + Raider Rally Panic
 	float subversionFactor = 1.0f;
 	if (!peacetimeCheck && root->empireRelationsAnalyzer && GetPlayerEmpire() && ownerEmpire != GetPlayerEmpire()) {
 		int affinityWithPlayer = root->empireRelationsAnalyzer->EmpiresAffinity(ownerEmpire, GetPlayerEmpire());
-		if (affinityWithPlayer >= 2) {
-			subversionFactor = 1.25f;
-		} else if (affinityWithPlayer == 1) {
-			subversionFactor = 1.10f;
-		} else if (affinityWithPlayer <= -2) {
-			subversionFactor = 0.85f;
-		}
+		if (affinityWithPlayer >= 2) subversionFactor = 1.25f;
+		else if (affinityWithPlayer == 1) subversionFactor = 1.10f;
+		else if (affinityWithPlayer <= -2) subversionFactor = 0.85f;
+
 		if (gadgets.hasEmbassy) {
-			subversionFactor *= (1.0f + 0.25f * gadgetMult); // Посольство усиливает переход гарнизона при штурме
+			subversionFactor *= (1.0f + 0.25f * gadgetMult);
 		}
 	} else if (peacetimeCheck && gadgets.hasEmbassy) {
-		subversionFactor *= 0.50f; // В мирное время Посольство стабилизирует колонию союзника
+		subversionFactor *= 0.50f;
 	}
 
 	if (!peacetimeCheck && sRaiderRallyPanicActive) {
-		subversionFactor *= 1.35f; // Пиратский набег Воина сеет хаос в рядах обороны
+		subversionFactor *= 1.35f;
 	}
 
 	float finalChance = rebellionChance * planetTierFactor * spiceFactor * infrastructureFactor * distanceFactor * subversionFactor * rebellionMultiplier;
+
 	if (gadgets.hasLoyaltyBooster) {
 		float suppression = min(0.90f * gadgetMult, 0.98f);
 		finalChance *= (1.0f - suppression);
 	}
+
 	if (peacetimeCheck) {
 		finalChance *= 0.70f;
 	}
+
 	return min(finalChance, 0.90f);
 }
-
 
 static bool ShouldTriggerNpcRebellion(cEmpire* ownerEmpire, cCompositionRoot* root, cGameDataUFO* newlySpawnedUfo)
 {
 	if (GetCurrentContext() != SpaceContext::Planet) return false;
+
 	cPlanetRecord* activePlanet = GetActivePlanetRecord();
 	if (!activePlanet || !activePlanet->GetStarRecord() ||
 		activePlanet->GetStarRecord()->mEmpireID != ownerEmpire->GetEmpireID()) {
 		return false;
 	}
+
 	if (!IsNpcPlanetInCombat(activePlanet, ownerEmpire)) {
 		return false;
 	}
 
 	float chance = ComputeNpcPlanetRebellionChance(activePlanet, ownerEmpire, root, false, newlySpawnedUfo);
 	if (chance <= 0.001f) return false;
+
 	return (Math::randf() < chance);
 }
 
 static void TryTriggerNpcPeacetimeColonialUprising(cPlanetRecord* planet, cEmpire* planetEmpire, cCompositionRoot* root)
 {
-	if (!planet || !planetEmpire || !root) return;
+	if (!planet || !planetEmpire || !root || !root->spaceCombatMetrics) return;
 	if (IsNpcPlanetInCombat(planet, planetEmpire)) return;
+
+	if (root->spaceCombatMetrics->GetPlanetGadgetInfo(planet).hasLoyaltyBooster) return;
 
 	uint32_t currentSpaceTime = (root->persistenceState != nullptr) ? root->persistenceState->GetCurrentSpaceTime() : 0;
 	auto itCd = sNpcPlanetUprisingCooldowns.find(planet);
@@ -543,7 +503,6 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 		uint32_t politicalID = static_cast<uint32_t>(*pPoliticalID);
 		cEmpire* ownerEmpire = StarManager.GetEmpire(politicalID);
 
-		// Прокачка вызванных пиратов (Raider Rally Воина): масштабируем их броню под уровень игрока!
 		if (!ownerEmpire && gadgetMult > 0.01f && GetPlayerEmpire() != nullptr) {
 			cEmpire* playerEmp = GetPlayerEmpire();
 			float raiderHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(playerEmp) * (0.90f + 0.25f * gadgetMult);
@@ -558,7 +517,6 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 			return ufo;
 		}
 
-		// Защитников игрока обрабатывает первый мод, но Мини-клона Рыцаря (не Defender) прокачиваем!
 		if (ownerEmpire == GetPlayerEmpire()) {
 			if (ufoType == UfoType::Defender) {
 				return ufo;
@@ -573,7 +531,6 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 			}
 		}
 
-		// Если ангары врага заглушены Песней Барда или Статическим разрядом Дипломата — блокируем взлет подкрепления!
 		if (ufoType == UfoType::Defender && !sIsGeneratingInitialPlanetGarrison && GetCurrentContext() == SpaceContext::Planet) {
 			cPlanetRecord* activePlanet = GetActivePlanetRecord();
 			uint32_t nowTime = (root->persistenceState != nullptr) ? root->persistenceState->GetCurrentSpaceTime() : 0;
@@ -597,6 +554,12 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 				SdoPlanetGadgetInfo gInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(GetActivePlanetRecord());
 				if (gInfo.hasUberTurret) {
 					customHP *= (1.0f + 0.25f * gadgetMult);
+				}
+				if (gInfo.hasBioProtector) {
+					Simulator::Archetypes bArch = ArchetypeUtils::GetBaseArchetype(ownerEmpire->mArchetype);
+					if (bArch == Archetypes::kArchetypeEcologist || bArch == Archetypes::kArchetypeShaman || bArch == Archetypes::kArchetypeScientist) {
+						customHP *= (1.0f + 0.15f * gadgetMult);
+					}
 				}
 			}
 		}
@@ -630,7 +593,6 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 	}
 };
 
-
 member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlanet* planet))
 {
 	void detoured(cPlanet* planet)
@@ -645,21 +607,50 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 
 		if (IsSpaceGame() && planet && planet->mpPlanetRecord) {
 			cCompositionRoot* root = cCompositionRoot::Get();
+			cPlanetRecord* pRec = planet->mpPlanetRecord.get();
 
 			if (root && root->spaceCombatMetrics) {
-				root->spaceCombatMetrics->UpdatePlanetDefenseCache(planet->mpPlanetRecord.get());
+				root->spaceCombatMetrics->UpdatePlanetDefenseCache(pRec);
 			}
 
 			cEmpire* planetEmpire = planet->GetEmpire();
-			if (!planetEmpire && planet->mpPlanetRecord->GetStarRecord() && planet->mpPlanetRecord->GetStarRecord()->mEmpireID != 0) {
-				planetEmpire = StarManager.GetEmpire(planet->mpPlanetRecord->GetStarRecord()->mEmpireID);
+			if (!planetEmpire && pRec->GetStarRecord() && pRec->GetStarRecord()->mEmpireID != 0) {
+				planetEmpire = StarManager.GetEmpire(pRec->GetStarRecord()->mEmpireID);
 			}
 
+			float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
+
+			// 1. Дипломатический Крейсер Посольства ИИ на планете ИГРОКА!
+			if (planetEmpire && planetEmpire == GetPlayerEmpire() && root && root->spaceCombatMetrics && gadgetMult > 0.01f) {
+				SdoPlanetGadgetInfo playerPlanetInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(pRec);
+				if (playerPlanetInfo.aiEmbassyEmpireID != 0) {
+					cEmpire* ambassadorEmp = StarManager.GetEmpire(playerPlanetInfo.aiEmbassyEmpireID);
+					if (ambassadorEmp && ambassadorEmp != GetPlayerEmpire()) {
+						int* pAmbPolID = &ambassadorEmp->mPoliticalID;
+						ResourceKey* pAmbKey = &ambassadorEmp->mUFOKey;
+						bool atWarNow = RelationshipManager.IsAtWar(ambassadorEmp, GetPlayerEmpire());
+
+						cGameDataUFO* envoyShip = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+							cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+							Args(atWarNow ? UfoType::Bomber : UfoType::Defender, pAmbPolID, pAmbKey));
+
+						if (envoyShip) {
+							float envoyHP = root->spaceCombatMetrics->GetBomberHealthByEmpire(ambassadorEmp) * 1.50f;
+							envoyShip->mHealthPoints = envoyHP;
+							envoyShip->mMaxHealthPoints = envoyHP;
+							envoyShip->SetScale(envoyShip->GetScale() * 1.35f);
+						}
+					}
+				}
+			}
+
+			// 2. Гарнизон и Орбитальный Дредноут Убербашни на планете НПС!
 			if (planetEmpire && planetEmpire != GetPlayerEmpire() &&
 				root && root->spaceCombatMetrics && root->simulationValidator &&
 				root->simulationValidator->ValidEmpire(planetEmpire, false, true)) {
 
-				int targetDefenders = root->spaceCombatMetrics->GetDefendersInPlanet(planet->mpPlanetRecord.get());
+				SdoPlanetGadgetInfo npcGadgets = root->spaceCombatMetrics->GetPlanetGadgetInfo(pRec);
+				int targetDefenders = root->spaceCombatMetrics->GetDefendersInPlanet(pRec);
 				if (targetDefenders > 24) {
 					targetDefenders = 24;
 				}
@@ -688,8 +679,22 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 					}
 				}
 
-				// Peacetime colonial uprising check on NPC planet entry (strikes / war debt)
-				TryTriggerNpcPeacetimeColonialUprising(planet->mpPlanetRecord.get(), planetEmpire, root);
+				// Если богатый ИИ купил на эту планету Убербашню — в небе дежурит гигантский Флагман-Страж (Дредноут)!
+				if (npcGadgets.hasUberTurret && gadgetMult > 0.01f) {
+					int* pPolID = &planetEmpire->mPoliticalID;
+					ResourceKey* pKey = &planetEmpire->mUFOKey;
+					cGameDataUFO* dreadnought = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+						cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+						Args(UfoType::Defender, pPolID, pKey));
+					if (dreadnought) {
+						float bossHP = root->spaceCombatMetrics->GetBomberHealthByEmpire(planetEmpire) * (3.5f * gadgetMult);
+						dreadnought->mHealthPoints = bossHP;
+						dreadnought->mMaxHealthPoints = bossHP;
+						dreadnought->SetScale(dreadnought->GetScale() * 1.85f);
+					}
+				}
+
+				TryTriggerNpcPeacetimeColonialUprising(pRec, planetEmpire, root);
 			}
 		}
 
@@ -710,7 +715,6 @@ static void HandlePlayerToolOnNpcPlanet(cSpaceToolData* pTool)
 
 	uint32_t ownerId = activePlanet->GetStarRecord()->mEmpireID;
 	if (ownerId == 0 || ownerId == GetPlayerEmpireID()) return;
-
 	cEmpire* npcEmpire = StarManager.GetEmpire(ownerId);
 	if (!npcEmpire) return;
 
@@ -718,21 +722,18 @@ static void HandlePlayerToolOnNpcPlanet(cSpaceToolData* pTool)
 	cCompositionRoot* root = cCompositionRoot::Get();
 	uint32_t nowTime = (root && root->persistenceState) ? root->persistenceState->GetCurrentSpaceTime() : 0;
 
-	// 1. Песнь Барда и Статический разряд Дипломата: блокируют вылет новых защитников из ангаров на 45 сек
 	if (MatchNpcToolKey(toolId, "soothingsong", "staticcling", "tool_staticcling", 0x04668B95, 0x04668B93)) {
 		if (nowTime > 0) {
 			uint32_t jamDuration = static_cast<uint32_t>(round(45000.0f * gadgetMult));
 			sNpcHangarJamCooldowns[cPlanetRecordPtr(activePlanet)] = nowTime + jamDuration;
 		}
 	}
-	// 2. Пиратский набег Воина (Raider Rally): включает режим паники для гарнизона врага
 	else if (MatchNpcToolKey(toolId, "raiderrally", "pirateraid", "tool_raiderrally", 0x04668B92, 0x03F3E498)) {
 		sRaiderRallyPanicActive = true;
 	}
-	// 3. Помощь союзнику: Стиратель памяти / Луч счастья / Фейерверк усмиряют мятежников на планете друга!
 	else if (!RelationshipManager.IsAtWar(npcEmpire, GetPlayerEmpire()) &&
-	         (MatchNpcToolKey(toolId, "minderase", "globalminderase", "happyray", 0x03F3E491, 0x03F3E481) ||
-	          MatchNpcToolKey(toolId, "fireworks", "superhappyray", nullptr, 0x03F3E480, 0x04668B81))) {
+		(MatchNpcToolKey(toolId, "minderase", "globalminderase", "happyray", 0x03F3E491, 0x03F3E481) ||
+		 MatchNpcToolKey(toolId, "fireworks", "superhappyray", nullptr, 0x03F3E480, 0x04668B81))) {
 		const auto& ufos = GetData<cGameDataUFO>();
 		for (const auto& ufo : ufos) {
 			if (ufo && ufo->mHealthPoints > 0 && ufo->mPoliticalID == 0xFFFFFFFF && ufo->mUFOType == static_cast<int>(UfoType::Bomber)) {
@@ -769,7 +770,6 @@ void AttachDetours()
 	NpcToolOnHit__detour::attach(GetAddress(cToolStrategy, OnHit));
 }
 
-// Generally, you don't need to touch any code here
 BOOL APIENTRY DllMain( HMODULE hModule,
                        DWORD  ul_reason_for_call,
                        LPVOID lpReserved
