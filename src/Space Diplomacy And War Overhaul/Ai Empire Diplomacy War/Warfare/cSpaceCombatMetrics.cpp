@@ -462,6 +462,25 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 	EnsurePersistenceLoaded();
 	uint32_t targetStarId = star->GetID().internalValue;
 
+	// 1. Сначала проверяем настоящие ванильные торговые пути Spore (синие линии на карте галактики!)
+	cEmpire* starOwner = StarManager.GetEmpire(star->mEmpireID);
+	cEmpire* playerEmp = GetPlayerEmpire();
+	if (starOwner && playerEmp) {
+		if (starOwner != playerEmp && RelationshipManager.HasTradeRoute(playerEmp->GetEmpireID(), starOwner->GetEmpireID())) {
+			outBlockaded = IsStarBlockaded(star);
+			return playerEmp;
+		}
+		if (starOwner == playerEmp) {
+			for (uint32_t allyOrPartnerID : playerEmp->mAllies) {
+				if (RelationshipManager.HasTradeRoute(playerEmp->GetEmpireID(), allyOrPartnerID)) {
+					outBlockaded = IsStarBlockaded(star);
+					return StarManager.GetEmpire(allyOrPartnerID);
+				}
+			}
+		}
+	}
+
+	// 2. Затем проверяем нашу динамическую сеть торговых маршрутов ИИ
 	for (const auto& route : galacticTradeRoutes) {
 		if (route.starIdA != targetStarId && route.starIdB != targetStarId) continue;
 
@@ -481,6 +500,11 @@ bool cSpaceCombatMetrics::StarHasAnyActiveTradeRoute(Simulator::cStarRecord* sta
 {
 	outBlockaded = false;
 	if (!star || GetTradeConfig().incomeMultiplier <= 0.01f) return false;
+
+	cEmpire* partner = GetStarActiveTradePartner(star, outBlockaded);
+	if (partner != nullptr) {
+		return true;
+	}
 
 	EnsurePersistenceLoaded();
 	uint32_t targetStarId = star->GetID().internalValue;
