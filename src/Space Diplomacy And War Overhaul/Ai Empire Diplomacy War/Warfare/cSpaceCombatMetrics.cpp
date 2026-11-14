@@ -150,11 +150,19 @@ SdoTradeConfigValues cSpaceCombatMetrics::GetTradeConfig() const
 			cfg.routesPerAffinityPoint = static_cast<int>(round(affRoutesF));
 		}
 	}
+		App::Property::GetFloat(propList.get(), 0x07A1BC0C, cfg.convoyDensity);
+		App::Property::GetFloat(propList.get(), 0x07A1BC0D, cfg.convoyBaseScale);
+		App::Property::GetFloat(propList.get(), 0x07A1BC0E, cfg.convoyScalePerSpice);
+	}
 	if (cfg.incomeMultiplier < 0.0f || cfg.incomeMultiplier > 5.0f) cfg.incomeMultiplier = 1.0f;
 	if (cfg.spiceArbitrageWeight < 0.0f || cfg.spiceArbitrageWeight > 5.0f) cfg.spiceArbitrageWeight = 1.0f;
 	if (cfg.warDeterrenceStrength < 0.0f || cfg.warDeterrenceStrength > 5.0f) cfg.warDeterrenceStrength = 1.0f;
+	if (cfg.convoyDensity < 0.0f || cfg.convoyDensity > 5.0f) cfg.convoyDensity = 1.0f;
+	if (cfg.convoyBaseScale < 0.5f || cfg.convoyBaseScale > 4.0f) cfg.convoyBaseScale = 1.25f;
+	if (cfg.convoyScalePerSpice < 0.0f || cfg.convoyScalePerSpice > 1.0f) cfg.convoyScalePerSpice = 0.08f;
 	return cfg;
 }
+
 
 float cSpaceCombatMetrics::GetNormalizedStarSpiceRatio(Simulator::cStarRecord* star) const
 {
@@ -460,9 +468,8 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 	if (!star || GetTradeConfig().incomeMultiplier <= 0.01f) return nullptr;
 
 	EnsurePersistenceLoaded();
-	uint32_t targetStarId = star->GetID().internalValue;
 
-	// 1. Сначала проверяем настоящие ванильные торговые пути Spore (синие линии на карте галактики!)
+	// 1. Проверяем активные ванильные торговые пути Spore (синие линии на карте галактики)
 	cEmpire* starOwner = StarManager.GetEmpire(star->mEmpireID);
 	cEmpire* playerEmp = GetPlayerEmpire();
 	if (starOwner && playerEmp) {
@@ -471,16 +478,17 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 			return playerEmp;
 		}
 		if (starOwner == playerEmp) {
-			for (uint32_t allyOrPartnerID : playerEmp->mAllies) {
-				if (RelationshipManager.HasTradeRoute(playerEmp->GetEmpireID(), allyOrPartnerID)) {
+			for (uint32_t allyID : playerEmp->mAllies) {
+				if (RelationshipManager.HasTradeRoute(playerEmp->GetEmpireID(), allyID)) {
 					outBlockaded = IsStarBlockaded(star);
-					return StarManager.GetEmpire(allyOrPartnerID);
+					return StarManager.GetEmpire(allyID);
 				}
 			}
 		}
 	}
 
-	// 2. Затем проверяем нашу динамическую сеть торговых маршрутов ИИ
+	// 2. Проверяем динамическую сеть маршрутов мода
+	uint32_t targetStarId = star->GetID().internalValue;
 	for (const auto& route : galacticTradeRoutes) {
 		if (route.starIdA != targetStarId && route.starIdB != targetStarId) continue;
 
@@ -501,14 +509,12 @@ bool cSpaceCombatMetrics::StarHasAnyActiveTradeRoute(Simulator::cStarRecord* sta
 	outBlockaded = false;
 	if (!star || GetTradeConfig().incomeMultiplier <= 0.01f) return false;
 
-	cEmpire* partner = GetStarActiveTradePartner(star, outBlockaded);
-	if (partner != nullptr) {
+	if (GetStarActiveTradePartner(star, outBlockaded) != nullptr) {
 		return true;
 	}
 
 	EnsurePersistenceLoaded();
 	uint32_t targetStarId = star->GetID().internalValue;
-
 	for (const auto& route : galacticTradeRoutes) {
 		if (route.starIdA != targetStarId && route.starIdB != targetStarId) continue;
 
@@ -521,6 +527,51 @@ bool cSpaceCombatMetrics::StarHasAnyActiveTradeRoute(Simulator::cStarRecord* sta
 	}
 	return false;
 }
+
+void cSpaceCombatMetrics::CalculateDynamicConvoySpecs(
+	Simulator::cPlanetRecord* planet,
+	Simulator::cEmpire* convoyEmpire,
+	int& outShipCount,
+	float& outScaleMult,
+	float& outHpMult)
+{
+	SdoTradeConfigValues cfg = GetTradeConfig();
+	if (!planet || !convoyEmpire || cfg.incomeMultiplier <= 0.01f || cfg.convoyDensity <= 0.01f) {
+		outShipCount = 0;
+		outScaleMult = 1.0f;
+		outHpMult = 1.0f;
+		return;
+	}
+
+	// 1. Динамическое число кораблей конвоя: Т-индекс + города Unlimited-Colony + Склад пряности + Архетип
+	float tierVolume = 0.8f;
+	if (PlanetUtils::Homeworld(planet)) tierVolume = 2.2f;
+	else if (planet->mType == PlanetType::T3) tierVolume = 1.8f;
+	else if (planet->mType == PlanetType::T2) tierVolume = 1.3f;
+	else if (planet->mType == PlanetType::T1) tierVolume = 1.0f;
+
+	int cities = max(GetCachedCityCount(planet), 1);
+	float cityBonus = 1.0f + min(static_cast<float>(cities - 1) * 0.15f, 1.2f);
+
+	SdoPlanetGadgetInfo gadgets = GetPlanetGadgetInfo(planet);
+	float depotBonus = gadgets.hasSpiceStorage ? 1.35f : 1.0f;
+
+	Simulator::Archetypes arch = ArchetypeUtils::GetBaseArchetype(convoyEmpire->mArchetype);
+	float traderFleetBonus = (arch == Archetypes::kArchetypeTrader) ? 1.35f : 1.0f;
+
+	int rawCount = static_cast<int>(round(tierVolume * cityBonus * depotBonus * traderFleetBonus * cfg.convoyDensity));
+	outShipCount = min(max(rawCount, 1), max(cfg.maxRoutesPerEmpire, 6));
+
+	// 2. Динамический габарит и броня танкера от ценности пряности звезды и XML-коэффициентов
+	float spiceRatio = planet->GetStarRecord() ? GetNormalizedStarSpiceRatio(planet->GetStarRecord()) : 1.0f;
+	float logSpice = std::log2(max(spiceRatio, 1.0f)); // плавный рост без гигантских моделей на модовой пряности x50
+
+	outScaleMult = cfg.convoyBaseScale + (logSpice * cfg.convoyScalePerSpice * cfg.spiceArbitrageWeight);
+	outScaleMult = min(max(outScaleMult, 1.05f), 2.20f);
+
+	outHpMult = outScaleMult * (gadgets.hasUberTurret ? 1.25f : 1.10f);
+}
+
 
 
 void cSpaceCombatMetrics::EnsurePersistenceLoaded()
