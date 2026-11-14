@@ -2,6 +2,7 @@
 
 #include <Spore\BasicIncludes.h>
 #include <EASTL\map.h>
+#include <EASTL\vector.h>
 #include <EASTL\utility.h>
 
 class cPersistenceState;
@@ -18,8 +19,19 @@ struct SdoPlanetGadgetInfo {
 	uint32_t aiEmbassyEmpireID = 0;
 };
 
-// Stores unit and defense stats used in space combat and
-// calculates those values given specific empires or planets.
+struct SdoTradeRouteEntry {
+	uint32_t starIdA = 0;
+	uint32_t starIdB = 0;
+};
+
+struct SdoTradeConfigValues {
+	float incomeMultiplier = 1.0f;       // 0x07A1BC07
+	float spiceArbitrageWeight = 1.0f;   // 0x07A1BC08
+	float warDeterrenceStrength = 1.0f;  // 0x07A1BC09
+	int maxRoutesPerEmpire = 5;          // 0x07A1BC0A
+	int routesPerAffinityPoint = 2;      // 0x07A1BC0B
+};
+
 class cSpaceCombatMetrics 
 	: public Object
 	, public DefaultRefCounted
@@ -55,12 +67,25 @@ public:
 	int GetDefendersInPlanet(Simulator::cPlanetRecord* planet);
 	int GetTurretsInPlanet(Simulator::cPlanetRecord* planet);
 
-	// Кэш посещенных планет для Unlimited-Colony, покупки ИИ и синхронизация с сейвом
+	// Кэш посещенных планет для Unlimited-Colony и постройки ИИ
 	void UpdatePlanetDefenseCache(Simulator::cPlanetRecord* planet);
 	int GetCachedCityCount(Simulator::cPlanetRecord* planet);
 	int GetCachedTurretCount(Simulator::cPlanetRecord* planet);
 	SdoPlanetGadgetInfo GetPlanetGadgetInfo(Simulator::cPlanetRecord* planet);
 	void RegisterAiGadgetPurchase(Simulator::cPlanetRecord* planet, const SdoPlanetGadgetInfo& purchasedInfo);
+
+	// Галактическая торговая сеть (без хардкода, через TradeConfig.prop)
+	SdoTradeConfigValues GetTradeConfig() const;
+	float GetNormalizedStarSpiceRatio(Simulator::cStarRecord* star) const;
+	bool IsStarBlockaded(Simulator::cStarRecord* star) const;
+	bool HasTradeRouteBetweenStars(uint32_t starA, uint32_t starB) const;
+	int GetEmpireTotalTradeRoutes(Simulator::cEmpire* empire);
+	int GetActiveTradeRoutesBetweenEmpires(Simulator::cEmpire* emp1, Simulator::cEmpire* emp2, bool includeBlockaded = false);
+	int GetTradeAffinityBonus(Simulator::cEmpire* emp1, Simulator::cEmpire* emp2);
+	float GetTradeWarDeterrenceMultiplier(Simulator::cEmpire* attacker, Simulator::cEmpire* target);
+	int ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire* empire, int baseUnitCost, float tradeRange);
+	int BreakTradeRoutesOnWar(Simulator::cEmpire* emp1, Simulator::cEmpire* emp2, int baseUnitCost);
+	Simulator::cEmpire* GetStarActiveTradePartner(Simulator::cStarRecord* star, bool& outBlockaded);
 
 	void ExportStateToPersistence(cPersistenceState* state);
 	void ImportStateFromPersistence(const cPersistenceState* state);
@@ -80,8 +105,11 @@ public:
 	int numTurretsInT3;
 
 private:
+	void PruneInvalidTradeRoutes();
+
 	bool persistenceImported = false;
 	eastl::map<cPlanetRecordPtr, eastl::pair<int, int>> planetDefenseCache;
 	eastl::map<cPlanetRecordPtr, SdoPlanetGadgetInfo> planetGadgetCache;
 	eastl::map<cPlanetRecordPtr, SdoPlanetGadgetInfo> aiPurchasedGadgets;
+	eastl::vector<SdoTradeRouteEntry> galacticTradeRoutes;
 };
