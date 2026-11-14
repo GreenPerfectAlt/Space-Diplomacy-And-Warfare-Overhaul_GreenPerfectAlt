@@ -9,22 +9,25 @@
 using namespace SporeModUtils;
 using namespace Simulator;
 
-static float GetAiPlanetSpiceValue(Simulator::cPlanetRecord* planet)
+static float GetNormalizedPlanetSpiceFactor(Simulator::cPlanetRecord* planet)
 {
-	if (!planet) return 0.0f;
-	uint32_t spiceID = planet->mSpiceGen.instanceID;
-	if (spiceID == 0) return 0.0f;
+	if (!planet || planet->mSpiceGen.instanceID == 0) return 1.0f;
+
+	float refRed = 1.0f;
+	PropertyListPtr redProp;
+	if (PropManager.GetPropertyList(0x0289B83D, 0x034D97FA, redProp) && redProp != nullptr) {
+		App::Property::GetFloat(redProp.get(), 0x00B2CCCB, refRed);
+	}
+	refRed = max(refRed, 1.0f);
 
 	PropertyListPtr spiceProp;
-	if (PropManager.GetPropertyList(spiceID, 0x034D97FA, spiceProp) && spiceProp != nullptr) {
+	if (PropManager.GetPropertyList(planet->mSpiceGen.instanceID, 0x034D97FA, spiceProp) && spiceProp != nullptr) {
 		float baseCost = 0.0f;
 		if (App::Property::GetFloat(spiceProp.get(), 0x00B2CCCB, baseCost) && baseCost > 0.0f) {
-			return baseCost;
+			return max(baseCost / refRed, 0.5f);
 		}
 	}
-	if (spiceID == 0x0289B841 || spiceID == 0x0289B842) return 3000.0f;
-	if (spiceID == 0x0289B83F || spiceID == 0x0289B840) return 1200.0f;
-	return 300.0f;
+	return 1.0f;
 }
 
 static void InvestAiSurplusInColonyGadgets(
@@ -46,7 +49,6 @@ static void InvestAiSurplusInColonyGadgets(
 	cCompositionRoot* root = cCompositionRoot::Get();
 	if (!root || !root->spaceCombatMetrics) return;
 
-	// Инвестиции начинаются только при профиците бюджета (> 55% от потолка казны, либо > 45% в полном мире)
 	float investRatio = empire->mEnemies.empty() ? 0.45f : 0.65f;
 	int investThreshold = static_cast<int>(round(static_cast<float>(dynamicMaxTreasury) * investRatio));
 	if (empire->mEmpireMoney < investThreshold) return;
@@ -59,7 +61,6 @@ static void InvestAiSurplusInColonyGadgets(
 	}
 	int costUberTurret = max(baseUnitCost * 15, 8000);
 
-	// 1. Дипломатическая миссия: открытие Посольства ИИ на планете ИГРОКА!
 	cEmpire* playerEmp = GetPlayerEmpire();
 	bool likesDiplomacy = (baseArch == Archetypes::kArchetypeDiplomat || baseArch == Archetypes::kArchetypeTrader ||
 	                       baseArch == Archetypes::kArchetypeBard || baseArch == Archetypes::kArchetypeShaman ||
@@ -72,9 +73,10 @@ static void InvestAiSurplusInColonyGadgets(
 		int affinity = (root->empireRelationsAnalyzer != nullptr)
 			? root->empireRelationsAnalyzer->EmpiresAffinity(empire, playerEmp)
 			: 0;
+		int tradeBonus = root->spaceCombatMetrics->GetTradeAffinityBonus(empire, playerEmp);
 		bool isAllied = RelationshipManager.IsAllied(empire, playerEmp);
 
-		if (isAllied || affinity >= 1 || (baseArch == Archetypes::kArchetypeDiplomat && affinity >= 0)) {
+		if (isAllied || (affinity + tradeBonus) >= 1 || (baseArch == Archetypes::kArchetypeDiplomat && (affinity + tradeBonus) >= 0)) {
 			if (Math::randf() < 0.25f) {
 				for (const auto& pStar : playerEmp->mStars) {
 					if (!pStar) continue;
@@ -89,7 +91,7 @@ static void InvestAiSurplusInColonyGadgets(
 							embassyPurchase.aiEmbassyEmpireID = empire->GetEmpireID();
 							root->spaceCombatMetrics->RegisterAiGadgetPurchase(pPlanet.get(), embassyPurchase);
 							empire->mEmpireMoney -= costLoyaltyOrEmbassy;
-							return; // Не более 1 крупного госпроекта за цикл
+							return;
 						}
 					}
 				}
@@ -99,7 +101,6 @@ static void InvestAiSurplusInColonyGadgets(
 
 	cStarRecord* homeStar = EmpireUtils::GetHomeStar(empire);
 
-	// 2. Убербашня (+ Орбитальный Дредноут) при высоком богатстве казны (> 75% MaxCap)
 	int uberThreshold = static_cast<int>(round(static_cast<float>(dynamicMaxTreasury) * 0.75f));
 	if (empire->mEmpireMoney >= max(uberThreshold, costUberTurret * 2)) {
 		bool militaristOrTech = (baseArch == Archetypes::kArchetypeWarrior || baseArch == Archetypes::kArchetypeScientist ||
@@ -125,7 +126,6 @@ static void InvestAiSurplusInColonyGadgets(
 		}
 	}
 
-	// 3. Инфраструктурные модули по философии (Хранилище пряности, Усилитель преданности на окраинах, Биозащита/Счастье)
 	for (const auto& star : empire->mStars) {
 		if (!star) continue;
 		float distFromHome = (homeStar != nullptr && homeStar != star.get())
@@ -135,11 +135,10 @@ static void InvestAiSurplusInColonyGadgets(
 		for (const auto& pl : star->GetPlanetRecords()) {
 			if (!pl || pl->GetTechLevel() != TechLevel::Empire) continue;
 			SdoPlanetGadgetInfo gInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(pl.get());
-			float spiceVal = GetAiPlanetSpiceValue(pl.get());
+			float spiceRatio = GetNormalizedPlanetSpiceFactor(pl.get());
 
-			// А) Хранилище пряности на богатых сырьевых мирах или Т3 узлах
 			if (!gInfo.hasSpiceStorage && empire->mEmpireMoney >= (investThreshold + costSpiceStorage)) {
-				if (spiceVal >= 1200.0f || pl->mType == PlanetType::T3 || baseArch == Archetypes::kArchetypeTrader) {
+				if (spiceRatio >= 2.5f || pl->mType == PlanetType::T3 || baseArch == Archetypes::kArchetypeTrader) {
 					SdoPlanetGadgetInfo buyStorage;
 					buyStorage.hasSpiceStorage = true;
 					root->spaceCombatMetrics->RegisterAiGadgetPurchase(pl.get(), buyStorage);
@@ -148,7 +147,6 @@ static void InvestAiSurplusInColonyGadgets(
 				}
 			}
 
-			// Б) Усилитель преданности у Воинов и Торговцев на далеких мятежных колониях окраин
 			if (!gInfo.hasLoyaltyBooster &&
 			    (baseArch == Archetypes::kArchetypeWarrior || baseArch == Archetypes::kArchetypeTrader) &&
 			    distFromHome > max(logisticsRange, 10.0f) &&
@@ -162,7 +160,6 @@ static void InvestAiSurplusInColonyGadgets(
 				return;
 			}
 
-			// В) Биозащита и Усилитель счастья у гармоничных и научных империй
 			if (!gInfo.hasBioProtector && !gInfo.hasHappinessBooster &&
 			    (baseArch == Archetypes::kArchetypeEcologist || baseArch == Archetypes::kArchetypeScientist ||
 			     baseArch == Archetypes::kArchetypeShaman || baseArch == Archetypes::kArchetypeBard ||
@@ -195,19 +192,9 @@ cEmpireWarfare::cEmpireWarfare(Simulator::cEmpire* empire,
 	this->warfareEventDispatcher = warfareEventDispatcher;
 }
 
-cEmpireWarfare::~cEmpireWarfare()
-{
-}
-
-int cEmpireWarfare::AddRef()
-{
-	return DefaultRefCounted::AddRef();
-}
-
-int cEmpireWarfare::Release()
-{
-	return DefaultRefCounted::Release();
-}
+cEmpireWarfare::~cEmpireWarfare() {}
+int cEmpireWarfare::AddRef() { return DefaultRefCounted::AddRef(); }
+int cEmpireWarfare::Release() { return DefaultRefCounted::Release(); }
 
 void* cEmpireWarfare::Cast(uint32_t type) const
 {
@@ -262,6 +249,7 @@ eastl::vector<cStarRecord*> cEmpireWarfare::GetEnemyStarsInRangeOfStar(Simulator
 	for (auto& pair : enemyStars) {
 		orderedStars.push_back(pair.second);
 	}
+
 	return orderedStars;
 }
 
@@ -355,10 +343,14 @@ void cEmpireWarfare::SelectAndAttackTargets() {
 		bomberUnitCost = max(static_cast<int>(round(static_cast<float>(baseUnitCost) * 0.80f)), 200);
 	}
 
+	range = warfareConfig->GetWarfareRange(empire->GetWeaponryLevel());
 	int numSystems = max(static_cast<int>(empire->mStars.size()), 1);
 	int cycleTaxIncome = static_cast<int>(round(max(bombersPerCycle, 1.0f) * static_cast<float>(baseUnitCost) * 0.65f * taxMultiplier));
 
 	int storageBonus = 0;
+	int tradeIncome = 0;
+	int activeRouteCapBonus = 0;
+
 	cCompositionRoot* root = cCompositionRoot::Get();
 	if (root && root->spaceCombatMetrics) {
 		float gadgetMult = 1.0f;
@@ -374,20 +366,21 @@ void cEmpireWarfare::SelectAndAttackTargets() {
 				}
 			}
 		}
+
+		// Доход от галактической торговой сети и арбитража пряности
+		tradeIncome = root->spaceCombatMetrics->ManageAndCalculateEmpireTradeIncome(empire.get(), baseUnitCost, range);
+		activeRouteCapBonus = root->spaceCombatMetrics->GetEmpireTotalTradeRoutes(empire.get()) * baseUnitCost * 8;
 	}
 
 	int dynamicMaxTreasury = static_cast<int>(round(
-		(50000.0f + static_cast<float>(numSystems) * 25000.0f + static_cast<float>(storageBonus) + static_cast<float>(cycleTaxIncome) * 10.0f) * taxMultiplier
+		(50000.0f + static_cast<float>(numSystems) * 25000.0f + static_cast<float>(storageBonus + activeRouteCapBonus) + static_cast<float>(cycleTaxIncome + tradeIncome) * 10.0f) * taxMultiplier
 	));
-	dynamicMaxTreasury = min(max(dynamicMaxTreasury, 80000), 15000000);
+	dynamicMaxTreasury = min(max(dynamicMaxTreasury, 80000), 20000000);
 
 	if (empire->mEmpireMoney < dynamicMaxTreasury) {
-		empire->mEmpireMoney = min(empire->mEmpireMoney + cycleTaxIncome, dynamicMaxTreasury);
+		empire->mEmpireMoney = min(empire->mEmpireMoney + cycleTaxIncome + tradeIncome, dynamicMaxTreasury);
 	}
 
-	range = warfareConfig->GetWarfareRange(empire->GetWeaponryLevel());
-
-	// Инвестиции богатых НПС в инфраструктуру своих планет и Посольства у игрока!
 	InvestAiSurplusInColonyGadgets(empire.get(), baseArch, dynamicMaxTreasury, baseUnitCost, range);
 
 	if (empire->mEnemies.empty()) return;
