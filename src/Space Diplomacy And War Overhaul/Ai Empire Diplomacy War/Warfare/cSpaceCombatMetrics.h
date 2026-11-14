@@ -30,11 +30,10 @@ struct SdoTradeConfigValues {
 	float warDeterrenceStrength = 1.0f;  // 0x07A1BC09
 	int maxRoutesPerEmpire = 5;          // 0x07A1BC0A
 	int routesPerAffinityPoint = 2;      // 0x07A1BC0B
-	float convoyDensity = 1.0f;          // 0x07A1BC0C (множитель числа кораблей каравана)
-	float convoyBaseScale = 1.25f;       // 0x07A1BC0D (базовый масштаб модели большегруза)
-	float convoyScalePerSpice = 0.08f;   // 0x07A1BC0E (рост размера и брони от дороговизны пряности)
+	float convoyDensity = 1.0f;          // 0x07A1BC0C
+	float convoyBaseScale = 1.25f;       // 0x07A1BC0D
+	float convoyScalePerSpice = 0.08f;   // 0x07A1BC0E
 };
-
 
 class cSpaceCombatMetrics 
 	: public Object
@@ -92,7 +91,6 @@ public:
 	Simulator::cEmpire* GetStarActiveTradePartner(Simulator::cStarRecord* star, bool& outBlockaded);
 	bool StarHasAnyActiveTradeRoute(Simulator::cStarRecord* star, bool& outBlockaded);
 	void CalculateDynamicConvoySpecs(Simulator::cPlanetRecord* planet, Simulator::cEmpire* convoyEmpire, int& outShipCount, float& outScaleMult, float& outHpMult);
-	bool StarHasAnyActiveTradeRoute(Simulator::cStarRecord* star, bool& outBlockaded);
 
 	void ExportStateToPersistence(cPersistenceState* state);
 	void ImportStateFromPersistence(const cPersistenceState* state);
