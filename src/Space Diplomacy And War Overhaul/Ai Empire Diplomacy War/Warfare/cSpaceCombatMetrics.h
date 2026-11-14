@@ -4,6 +4,8 @@
 #include <EASTL\map.h>
 #include <EASTL\utility.h>
 
+class cPersistenceState;
+
 #define cSpaceCombatMetricsPtr intrusive_ptr<cSpaceCombatMetrics>
 
 struct SdoPlanetGadgetInfo {
@@ -53,12 +55,16 @@ public:
 	int GetDefendersInPlanet(Simulator::cPlanetRecord* planet);
 	int GetTurretsInPlanet(Simulator::cPlanetRecord* planet);
 
-	// Кэш посещенных планет для Unlimited-Colony и реестр инвестиций ИИ в постройки/посольства
+	// Кэш посещенных планет для Unlimited-Colony, покупки ИИ и синхронизация с сейвом
 	void UpdatePlanetDefenseCache(Simulator::cPlanetRecord* planet);
-	int GetCachedCityCount(Simulator::cPlanetRecord* planet) const;
-	int GetCachedTurretCount(Simulator::cPlanetRecord* planet) const;
+	int GetCachedCityCount(Simulator::cPlanetRecord* planet);
+	int GetCachedTurretCount(Simulator::cPlanetRecord* planet);
 	SdoPlanetGadgetInfo GetPlanetGadgetInfo(Simulator::cPlanetRecord* planet);
 	void RegisterAiGadgetPurchase(Simulator::cPlanetRecord* planet, const SdoPlanetGadgetInfo& purchasedInfo);
+
+	void ExportStateToPersistence(cPersistenceState* state);
+	void ImportStateFromPersistence(const cPersistenceState* state);
+	void EnsurePersistenceLoaded();
 
 	eastl::vector<float> healthBomber;
 	eastl::vector<float> healthFighter;
@@ -74,6 +80,7 @@ public:
 	int numTurretsInT3;
 
 private:
+	bool persistenceImported = false;
 	eastl::map<cPlanetRecordPtr, eastl::pair<int, int>> planetDefenseCache;
 	eastl::map<cPlanetRecordPtr, SdoPlanetGadgetInfo> planetGadgetCache;
 	eastl::map<cPlanetRecordPtr, SdoPlanetGadgetInfo> aiPurchasedGadgets;
