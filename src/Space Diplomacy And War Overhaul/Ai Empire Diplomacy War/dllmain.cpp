@@ -31,59 +31,17 @@
 #include "cDatabaseManager.h"
 #include "Diplomacy/PersistedEvent/cPreparingToDeclareWarEvent.h"
 #include <EASTL/map.h>
+#include <EASTL/set.h>
 #include <cmath>
 
 using namespace SporeModUtils;
 using namespace Simulator;
 
-void Initialize()
-{
-	cSimulatorSystem::Get()->AddStrategy(new cCompositionRoot(), cCompositionRoot::NOUN_ID);
-	cSimulatorSystem::Get()->AddStrategy(new cDiplomacySystem(), cDiplomacySystem::NOUN_ID);
-	cSimulatorSystem::Get()->AddStrategy(new cWarfareSystem(), cWarfareSystem::NOUN_ID);
-	cSimulatorSystem::Get()->AddStrategy(new cDatabaseManager(), cDatabaseManager::NOUN_ID);
-	ToolManager.AddStrategy(new cToolInvasionStrategy(), cToolInvasionStrategy::TYPE);
-
-	ClassManager.AddFactory(new cPersistedObjectFactory());
-	ClassManager.AddFactory(new cPersistenceStateFactory());
-	ClassManager.AddFactory(new cPersistedEventFactory());
-	ClassManager.AddFactory(new cPersistedDiplomacyEventFactory());
-	ClassManager.AddFactory(new cNeighborsInPeaceEventFactory());
-	ClassManager.AddFactory(new cMadePeaceEventFactory());
-	ClassManager.AddFactory(new cUpliftedByMonolithEventFactory());
-	ClassManager.AddFactory(new cFormedAllianceEventFactory());
-	ClassManager.AddFactory(new cDefeatedEnemyTogetherEventFactory());
-	ClassManager.AddFactory(new cPreparingForWarEventFactory());
-}
-
-void Dispose()
-{
-}
-
-member_detour(ShouldSpawnRaiderUFO__detour, cRaidEvent, bool())
-{
-	bool detoured()
-	{
-		bool ret = original_function(this);
-		return false;
-	}
-};
-
 static bool sIsGeneratingInitialPlanetGarrison = false;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcPlanetUprisingCooldowns;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcHangarJamCooldowns;
+static eastl::set<cGameDataUFO*> sActiveTradeFreighters;
 static bool sRaiderRallyPanicActive = false;
-
-static bool MatchNpcToolKey(uint32_t idVal, const char* n1, const char* n2, const char* n3 = nullptr, uint32_t raw1 = 0, uint32_t raw2 = 0)
-{
-	if (idVal == 0) return false;
-	if (n1 && idVal == id(n1)) return true;
-	if (n2 && idVal == id(n2)) return true;
-	if (n3 && idVal == id(n3)) return true;
-	if (raw1 != 0 && idVal == raw1) return true;
-	if (raw2 != 0 && idVal == raw2) return true;
-	return false;
-}
 
 static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, float defaultVal)
 {
@@ -111,6 +69,118 @@ static float ReadWarfareConfigFloat(uint32_t propID, float defaultVal)
 		}
 	}
 	return defaultVal;
+}
+
+// Слушатель уничтожения кораблей каравана для грабежа пряности в 3D-бою
+class cTradeConvoyLootListener : public App::IMessageListener, public DefaultRefCounted
+{
+public:
+	int AddRef() override { return DefaultRefCounted::AddRef(); }
+	int Release() override { return DefaultRefCounted::Release(); }
+
+	bool HandleMessage(uint32_t messageID, void* msg) override
+	{
+		if (!IsSpaceGame() || messageID != SimulatorMessages::kMsgCombatantKilled || !msg) return true;
+
+		CombatantKilledMessage* killMsg = static_cast<CombatantKilledMessage*>(msg);
+		cGameDataUFO* deadUfo = object_cast<cGameDataUFO>(killMsg->GetCombatant());
+		if (!deadUfo) return true;
+
+		auto it = sActiveTradeFreighters.find(deadUfo);
+		if (it != sActiveTradeFreighters.end()) {
+			sActiveTradeFreighters.erase(it);
+
+			cCompositionRoot* root = cCompositionRoot::Get();
+			cPlanetRecord* activePlanet = GetActivePlanetRecord();
+			cEmpire* playerEmp = GetPlayerEmpire();
+
+			if (root && root->spaceCombatMetrics && activePlanet && activePlanet->GetStarRecord() && playerEmp) {
+				float redRate = max(ReadWarfareConfigFloat(0xD07B1F69, 1.0f), 0.1f);
+				int unitCost = max(static_cast<int>(round(1000.0f / redRate)), 250);
+				float spiceMult = root->spaceCombatMetrics->GetNormalizedStarSpiceRatio(activePlanet->GetStarRecord());
+				float tradeMult = root->spaceCombatMetrics->GetTradeConfig().incomeMultiplier;
+
+				int lootAmount = max(static_cast<int>(round(static_cast<float>(unitCost * 6) * spiceMult * tradeMult)), 1500);
+				cEmpire* cargoOwner = StarManager.GetEmpire(deadUfo->mPoliticalID);
+
+				if (cargoOwner && cargoOwner != playerEmp && RelationshipManager.IsAtWar(cargoOwner, playerEmp)) {
+					playerEmp->mEmpireMoney += lootAmount;
+					cargoOwner->mEmpireMoney = max(cargoOwner->mEmpireMoney - lootAmount, 0);
+				} else if (cargoOwner) {
+					cargoOwner->mEmpireMoney = max(cargoOwner->mEmpireMoney - lootAmount, 0);
+				}
+			}
+		}
+		return true;
+	}
+};
+
+static intrusive_ptr<cTradeConvoyLootListener> sConvoyLootListener;
+
+void Initialize()
+{
+	cSimulatorSystem::Get()->AddStrategy(new cCompositionRoot(), cCompositionRoot::NOUN_ID);
+	cSimulatorSystem::Get()->AddStrategy(new cDiplomacySystem(), cDiplomacySystem::NOUN_ID);
+	cSimulatorSystem::Get()->AddStrategy(new cWarfareSystem(), cWarfareSystem::NOUN_ID);
+	cSimulatorSystem::Get()->AddStrategy(new cDatabaseManager(), cDatabaseManager::NOUN_ID);
+	ToolManager.AddStrategy(new cToolInvasionStrategy(), cToolInvasionStrategy::TYPE);
+
+	ClassManager.AddFactory(new cPersistedObjectFactory());
+	ClassManager.AddFactory(new cPersistenceStateFactory());
+	ClassManager.AddFactory(new cPersistedEventFactory());
+	ClassManager.AddFactory(new cPersistedDiplomacyEventFactory());
+	ClassManager.AddFactory(new cNeighborsInPeaceEventFactory());
+	ClassManager.AddFactory(new cMadePeaceEventFactory());
+	ClassManager.AddFactory(new cUpliftedByMonolithEventFactory());
+	ClassManager.AddFactory(new cFormedAllianceEventFactory());
+	ClassManager.AddFactory(new cDefeatedEnemyTogetherEventFactory());
+	ClassManager.AddFactory(new cPreparingForWarEventFactory());
+
+	sConvoyLootListener = new cTradeConvoyLootListener();
+	MessageManager.AddListener(sConvoyLootListener.get(), SimulatorMessages::kMsgCombatantKilled);
+}
+
+void Dispose()
+{
+	if (sConvoyLootListener != nullptr) {
+		MessageManager.RemoveListener(sConvoyLootListener.get(), SimulatorMessages::kMsgCombatantKilled);
+		sConvoyLootListener = nullptr;
+	}
+}
+
+member_detour(ShouldSpawnRaiderUFO__detour, cRaidEvent, bool())
+{
+	bool detoured()
+	{
+		bool ret = original_function(this);
+		return false;
+	}
+};
+
+// Разрыв контрактов и финансовый шок обеим сторонам при объявлении войны
+member_detour(TradeWarBreak__detour, cRelationshipManager, void(cEmpire*, cEmpire*))
+{
+	void detoured(cEmpire* empire1, cEmpire* empire2)
+	{
+		cCompositionRoot* root = cCompositionRoot::Get();
+		if (IsSpaceGame() && root && root->spaceCombatMetrics && empire1 && empire2) {
+			float redRate = max(ReadWarfareConfigFloat(0xD07B1F69, 1.0f), 0.1f);
+			int unitCost = max(static_cast<int>(round(1000.0f / redRate)), 250);
+			root->spaceCombatMetrics->BreakTradeRoutesOnWar(empire1, empire2, unitCost);
+		}
+		original_function(this, empire1, empire2);
+	}
+};
+
+static bool MatchNpcToolKey(uint32_t idVal, const char* n1, const char* n2, const char* n3 = nullptr, uint32_t raw1 = 0, uint32_t raw2 = 0)
+{
+	if (idVal == 0) return false;
+	if (n1 && idVal == id(n1)) return true;
+	if (n2 && idVal == id(n2)) return true;
+	if (n3 && idVal == id(n3)) return true;
+	if (raw1 != 0 && idVal == raw1) return true;
+	if (raw2 != 0 && idVal == raw2) return true;
+	return false;
 }
 
 static float ReadWarfareRangeForEmpire(cEmpire* empire, float defaultRange)
@@ -151,6 +221,7 @@ static int GetDynamicMaxTreasuryForEmpire(cEmpire* empire, cCompositionRoot* roo
 	float tradeMult = (baseArch == Archetypes::kArchetypeTrader) ? 1.75f : 1.0f;
 
 	int storageBonus = 0;
+	int routeBonus = 0;
 	if (root && root->spaceCombatMetrics) {
 		float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
 		for (const auto& star : empire->mStars) {
@@ -161,33 +232,35 @@ static int GetDynamicMaxTreasuryForEmpire(cEmpire* empire, cCompositionRoot* roo
 				}
 			}
 		}
+		routeBonus = root->spaceCombatMetrics->GetEmpireTotalTradeRoutes(empire) * unitCost * 8;
 	}
 
 	int cycleIncome = max(static_cast<int>(round(produced * static_cast<float>(unitCost) * 0.45f * tradeMult)), 2500);
-	int starBaseCap = 50000 + static_cast<int>(empire->mStars.size()) * 25000 + storageBonus;
+	int starBaseCap = 50000 + static_cast<int>(empire->mStars.size()) * 25000 + storageBonus + routeBonus;
 
 	int maxCap = static_cast<int>(round(static_cast<float>(starBaseCap + cycleIncome * 10) * tradeMult));
 	return max(maxCap, 80000);
 }
 
-static float GetPlanetSpicePrice(cPlanetRecord* planet)
+static float GetPlanetNormalizedSpiceRatio(cPlanetRecord* planet)
 {
-	if (!planet) return 0.0f;
+	if (!planet || planet->mSpiceGen.instanceID == 0) return 1.0f;
 
-	uint32_t spiceID = planet->mSpiceGen.instanceID;
-	if (spiceID == 0) return 0.0f;
+	float refRed = 1.0f;
+	PropertyListPtr redProp;
+	if (PropManager.GetPropertyList(0x0289B83D, 0x034D97FA, redProp) && redProp != nullptr) {
+		App::Property::GetFloat(redProp.get(), 0x00B2CCCB, refRed);
+	}
+	refRed = max(refRed, 1.0f);
 
 	PropertyListPtr spiceProp;
-	if (PropManager.GetPropertyList(spiceID, 0x034D97FA, spiceProp) && spiceProp != nullptr) {
+	if (PropManager.GetPropertyList(planet->mSpiceGen.instanceID, 0x034D97FA, spiceProp) && spiceProp != nullptr) {
 		float baseCost = 0.0f;
 		if (App::Property::GetFloat(spiceProp.get(), 0x00B2CCCB, baseCost) && baseCost > 0.0f) {
-			return baseCost;
+			return max(baseCost / refRed, 0.5f);
 		}
 	}
-
-	if (spiceID == 0x0289B841 || spiceID == 0x0289B842) return 3000.0f;
-	if (spiceID == 0x0289B83F || spiceID == 0x0289B840) return 1200.0f;
-	return 300.0f;
+	return 1.0f;
 }
 
 static float GetNpcPlanetaryCityUnrestFactor(cPlanetRecord* planet)
@@ -244,6 +317,20 @@ static float GetNpcPlanetaryCityUnrestFactor(cPlanetRecord* planet)
 	}
 
 	float rawUnrest = min(unhappyScore + factoryStrain, 1.0f) * unrestMult;
+
+	// Влияние торговой сети: активный караван снижает стачки, а блокада маршрута вызывает всплеск недовольства
+	if (root && root->spaceCombatMetrics && planet->GetStarRecord()) {
+		bool isBlockaded = false;
+		cEmpire* tradePartner = root->spaceCombatMetrics->GetStarActiveTradePartner(planet->GetStarRecord(), isBlockaded);
+		if (tradePartner != nullptr) {
+			if (isBlockaded) {
+				rawUnrest += 0.25f * unrestMult;
+			} else {
+				rawUnrest *= 0.75f;
+			}
+		}
+	}
+
 	if (gInfo.hasBioProtector && rawUnrest > 0.0f) {
 		float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
 		rawUnrest *= max(0.20f, 1.0f - 0.30f * gadgetMult);
@@ -338,10 +425,10 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 	else if (activePlanet->mType == PlanetType::T3) planetTierFactor = 0.60f;
 
 	float spiceFactor = 1.0f;
-	float spicePrice = GetPlanetSpicePrice(activePlanet);
-	if (spicePrice > 3500.0f) spiceFactor = 0.65f;
-	else if (spicePrice >= 2000.0f) spiceFactor = 0.75f;
-	else if (spicePrice > 0.0f && spicePrice <= 450.0f) spiceFactor = 1.15f;
+	float spiceRatio = GetPlanetNormalizedSpiceRatio(activePlanet);
+	if (spiceRatio >= 5.0f) spiceFactor = 0.65f;
+	else if (spiceRatio >= 2.5f) spiceFactor = 0.75f;
+	else if (spiceRatio <= 1.2f) spiceFactor = 1.15f;
 
 	int cityCount = 1;
 	int turretCount = 0;
@@ -385,7 +472,8 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 
 	float subversionFactor = 1.0f;
 	if (!peacetimeCheck && root->empireRelationsAnalyzer && GetPlayerEmpire() && ownerEmpire != GetPlayerEmpire()) {
-		int affinityWithPlayer = root->empireRelationsAnalyzer->EmpiresAffinity(ownerEmpire, GetPlayerEmpire());
+		int affinityWithPlayer = root->empireRelationsAnalyzer->EmpiresAffinity(ownerEmpire, GetPlayerEmpire())
+			+ root->spaceCombatMetrics->GetTradeAffinityBonus(ownerEmpire, GetPlayerEmpire());
 		if (affinityWithPlayer >= 2) subversionFactor = 1.25f;
 		else if (affinityWithPlayer == 1) subversionFactor = 1.10f;
 		else if (affinityWithPlayer <= -2) subversionFactor = 0.85f;
@@ -603,6 +691,7 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 		}
 
 		sIsGeneratingInitialPlanetGarrison = true;
+		sActiveTradeFreighters.clear();
 		original_function(this, planet);
 
 		if (IsSpaceGame() && planet && planet->mpPlanetRecord) {
@@ -620,7 +709,27 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 
 			float gadgetMult = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC06, 1.0f);
 
-			// 1. Дипломатический Крейсер Посольства ИИ на планете ИГРОКА!
+			// 0. Грузовой караван внешнего торгового партнера в 3D-атмосфере планеты
+			if (planetEmpire && root && root->spaceCombatMetrics && pRec->GetStarRecord()) {
+				bool routeBlockaded = false;
+				cEmpire* tradePartner = root->spaceCombatMetrics->GetStarActiveTradePartner(pRec->GetStarRecord(), routeBlockaded);
+				if (tradePartner && !routeBlockaded && !RelationshipManager.IsAtWar(tradePartner, planetEmpire)) {
+					int* pPartnerPolID = &tradePartner->mPoliticalID;
+					ResourceKey* pPartnerKey = &tradePartner->mUFOKey;
+					cGameDataUFO* freighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+						cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+						Args(UfoType::Defender, pPartnerPolID, pPartnerKey));
+					if (freighter) {
+						float cargoHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(tradePartner) * 1.40f;
+						freighter->mHealthPoints = cargoHP;
+						freighter->mMaxHealthPoints = cargoHP;
+						freighter->SetScale(freighter->GetScale() * 1.25f);
+						sActiveTradeFreighters.insert(freighter);
+					}
+				}
+			}
+
+			// 1. Дипломатический Крейсер Посольства ИИ на планете ИГРОКА
 			if (planetEmpire && planetEmpire == GetPlayerEmpire() && root && root->spaceCombatMetrics && gadgetMult > 0.01f) {
 				SdoPlanetGadgetInfo playerPlanetInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(pRec);
 				if (playerPlanetInfo.aiEmbassyEmpireID != 0) {
@@ -644,7 +753,7 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 				}
 			}
 
-			// 2. Гарнизон и Орбитальный Дредноут Убербашни на планете НПС!
+			// 2. Гарнизон и Орбитальный Дредноут Убербашни на планете НПС
 			if (planetEmpire && planetEmpire != GetPlayerEmpire() &&
 				root && root->spaceCombatMetrics && root->simulationValidator &&
 				root->simulationValidator->ValidEmpire(planetEmpire, false, true)) {
@@ -661,7 +770,8 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 					for (const auto& ufo : ufos) {
 						if (ufo && ufo->mHealthPoints > 0 &&
 							ufo->mPoliticalID == planetEmpire->GetEmpireID() &&
-							ufo->mUFOType == static_cast<int>(UfoType::Defender)) {
+							ufo->mUFOType == static_cast<int>(UfoType::Defender) &&
+							sActiveTradeFreighters.find(ufo.get()) == sActiveTradeFreighters.end()) {
 							existingDefenders++;
 						}
 					}
@@ -679,7 +789,7 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 					}
 				}
 
-				// Если богатый ИИ купил на эту планету Убербашню — в небе дежурит гигантский Флагман-Страж (Дредноут)!
+				// Орбитальный Флагман-Страж (Дредноут), если ИИ построил Убербашню
 				if (npcGadgets.hasUberTurret && gadgetMult > 0.01f) {
 					int* pPolID = &planetEmpire->mPoliticalID;
 					ResourceKey* pKey = &planetEmpire->mUFOKey;
@@ -759,6 +869,7 @@ void AttachDetours()
 	ShowCommEvent__detour::attach(GetAddress(cCommManager, ShowCommEvent));
 	ApplyRelationshipMonolith__detour::attach(GetAddress(cRelationshipManager, ApplyRelationship));
 	DeclareWar__detour::attach(GetAddress(cRelationshipManager, DeclareWar));
+	TradeWarBreak__detour::attach(GetAddress(cRelationshipManager, DeclareWar));
 	DeclareAlliance__detour::attach(GetAddress(cRelationshipManager, DeclareAlliance));
 	BreakAlliance__detour::attach(GetAddress(cRelationshipManager, BreakAlliance));
 	HandleSpaceCommAction__detour::attach(GetAddress(cCommManager, HandleSpaceCommAction));
