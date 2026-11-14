@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "cSpaceCombatMetrics.h"
 #include <Spore-Mod-Utils/Include/SporeModUtils.h>
+#include <Spore/Simulator/cCity.h>
 #include <cmath>
 
 using namespace SporeModUtils;
@@ -94,6 +95,19 @@ static float GetExternalGadgetMultiplier()
 	return mult;
 }
 
+void cSpaceCombatMetrics::RegisterAiGadgetPurchase(Simulator::cPlanetRecord* planet, const SdoPlanetGadgetInfo& purchasedInfo)
+{
+	if (planet == nullptr) return;
+	SdoPlanetGadgetInfo& current = aiPurchasedGadgets[cPlanetRecordPtr(planet)];
+	if (purchasedInfo.hasLoyaltyBooster) current.hasLoyaltyBooster = true;
+	if (purchasedInfo.hasHappinessBooster) current.hasHappinessBooster = true;
+	if (purchasedInfo.hasUberTurret) current.hasUberTurret = true;
+	if (purchasedInfo.hasSpiceStorage) current.hasSpiceStorage = true;
+	if (purchasedInfo.hasBioProtector) current.hasBioProtector = true;
+	if (purchasedInfo.hasEmbassy) current.hasEmbassy = true;
+	if (purchasedInfo.aiEmbassyEmpireID != 0) current.aiEmbassyEmpireID = purchasedInfo.aiEmbassyEmpireID;
+}
+
 void cSpaceCombatMetrics::UpdatePlanetDefenseCache(Simulator::cPlanetRecord* planet)
 {
 	if (planet == nullptr) return;
@@ -142,20 +156,32 @@ void cSpaceCombatMetrics::UpdatePlanetDefenseCache(Simulator::cPlanetRecord* pla
 
 SdoPlanetGadgetInfo cSpaceCombatMetrics::GetPlanetGadgetInfo(Simulator::cPlanetRecord* planet)
 {
-	SdoPlanetGadgetInfo emptyInfo;
+	SdoPlanetGadgetInfo mergedInfo;
 	if (planet == nullptr || GetExternalGadgetMultiplier() <= 0.01f) {
-		return emptyInfo;
+		return mergedInfo;
 	}
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
 		UpdatePlanetDefenseCache(planet);
 	}
-	auto it = planetGadgetCache.find(cPlanetRecordPtr(planet));
-	if (it != planetGadgetCache.end()) {
-		return it->second;
-	}
-	return emptyInfo;
-}
 
+	auto itPlaced = planetGadgetCache.find(cPlanetRecordPtr(planet));
+	if (itPlaced != planetGadgetCache.end()) {
+		mergedInfo = itPlaced->second;
+	}
+
+	auto itAi = aiPurchasedGadgets.find(cPlanetRecordPtr(planet));
+	if (itAi != aiPurchasedGadgets.end()) {
+		if (itAi->second.hasLoyaltyBooster) mergedInfo.hasLoyaltyBooster = true;
+		if (itAi->second.hasHappinessBooster) mergedInfo.hasHappinessBooster = true;
+		if (itAi->second.hasUberTurret) mergedInfo.hasUberTurret = true;
+		if (itAi->second.hasSpiceStorage) mergedInfo.hasSpiceStorage = true;
+		if (itAi->second.hasBioProtector) mergedInfo.hasBioProtector = true;
+		if (itAi->second.hasEmbassy) mergedInfo.hasEmbassy = true;
+		if (itAi->second.aiEmbassyEmpireID != 0) mergedInfo.aiEmbassyEmpireID = itAi->second.aiEmbassyEmpireID;
+	}
+
+	return mergedInfo;
+}
 
 int cSpaceCombatMetrics::GetCachedCityCount(Simulator::cPlanetRecord* planet) const
 {
@@ -289,7 +315,6 @@ float cSpaceCombatMetrics::GetDefenderHealthByEmpire(Simulator::cEmpire* empire)
 {
 	if (empire == nullptr) return GetDefenderHealthByLevel(0);
 
-	// Авто-синхронизация брони защитников игрока с модом Defensive Ships In Player Colonies
 	if (empire == GetPlayerEmpire()) {
 		PropertyListPtr propListFleet;
 		if (PropManager.GetPropertyList(id(u"FleetConfig"), 0x02ae0c7e, propListFleet) && propListFleet != nullptr) {
@@ -342,13 +367,13 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 
 	UpdatePlanetDefenseCache(planet);
 	int cachedCities = GetCachedCityCount(planet);
+	SdoPlanetGadgetInfo gadgets = GetPlanetGadgetInfo(planet);
 
 	cEmpire* empire = nullptr;
 	if (planet->GetStarRecord() != nullptr) {
 		empire = StarManager.GetEmpire(planet->GetStarRecord()->mEmpireID);
 	}
 
-	// 1. Авто-синхронизация с гарнизоном игрока из мода Defensive Ships In Player Colonies
 	if (empire != nullptr && empire == GetPlayerEmpire()) {
 		PropertyListPtr propListFleet;
 		if (PropManager.GetPropertyList(id(u"FleetConfig"), 0x02ae0c7e, propListFleet) && propListFleet != nullptr) {
@@ -373,7 +398,7 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 			else if (planet->mType == PlanetType::T0) basePlayerDef = 5;
 
 			int rawTotal = basePlayerDef + (colonyCount - 1) * stepBonus;
-			if (GetPlanetGadgetInfo(planet).hasSpiceStorage) {
+			if (gadgets.hasSpiceStorage) {
 				rawTotal = static_cast<int>(round(static_cast<float>(rawTotal) * (1.0f + 0.25f * GetExternalGadgetMultiplier())));
 			}
 			rawTotal = static_cast<int>(round(static_cast<float>(rawTotal) * fleetMult));
@@ -392,14 +417,10 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 		}
 	}
 
-	if (planet->mType == PlanetType::T0) {
-		return GetDefendersInOutpost();
-	}
-
+	int baseDefenders = (planet->mType == PlanetType::T0) ? GetDefendersInOutpost() : GetDefendersInColony();
 	int baseColonyDefenders = GetDefendersInColony();
-	int baseDefenders = baseColonyDefenders;
 
-	if (empire != nullptr) {
+	if (planet->mType != PlanetType::T0 && empire != nullptr) {
 		Simulator::Archetypes baseArchetype = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
 		float archetypeMultiplier = 1.0f;
 
@@ -428,19 +449,17 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 		baseDefenders = max(static_cast<int>(round(static_cast<float>(baseColonyDefenders) * archetypeMultiplier * tScoreFactor)), 2);
 	}
 
-	// Учет реальных или закэшированных колоний Unlimited-Colony
 	int standardCities = (planet->mType == PlanetType::T3) ? 3 : ((planet->mType == PlanetType::T2) ? 2 : 1);
 	if (cachedCities > standardCities) {
 		baseDefenders += (cachedCities - standardCities) * max(baseColonyDefenders / 2, 1);
 	}
 
-	if (GetPlanetGadgetInfo(planet).hasSpiceStorage) {
+	if (gadgets.hasSpiceStorage) {
 		baseDefenders = static_cast<int>(round(static_cast<float>(baseDefenders) * (1.0f + 0.25f * GetExternalGadgetMultiplier())));
 	}
 
 	return baseDefenders;
 }
-
 
 int cSpaceCombatMetrics::GetTurretsInPlanet(Simulator::cPlanetRecord* planet)
 {
@@ -471,7 +490,6 @@ int cSpaceCombatMetrics::GetTurretsInPlanet(Simulator::cPlanetRecord* planet)
 			break;
 	}
 
-	// Если планета была посещена в сессии — возвращаем точное число турелей из кэша (включая застройку Т0 и Unlimited-Colony)
 	int finalTurrets = baseTurrets;
 	if (cachedCities > 0) {
 		if (cachedCities > standardCities || cachedTurrets > baseTurrets || planet->mType == PlanetType::T0) {
@@ -479,7 +497,6 @@ int cSpaceCombatMetrics::GetTurretsInPlanet(Simulator::cPlanetRecord* planet)
 		}
 	}
 
-	// Баланс Убербашни: эквивалент мощного орбитального щита (+14 тяжелых турелей в расчете штурма)
 	if (GetPlanetGadgetInfo(planet).hasUberTurret) {
 		finalTurrets += static_cast<int>(round(14.0f * GetExternalGadgetMultiplier()));
 	}
