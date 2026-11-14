@@ -477,6 +477,28 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 	return nullptr;
 }
 
+bool cSpaceCombatMetrics::StarHasAnyActiveTradeRoute(Simulator::cStarRecord* star, bool& outBlockaded)
+{
+	outBlockaded = false;
+	if (!star || GetTradeConfig().incomeMultiplier <= 0.01f) return false;
+
+	EnsurePersistenceLoaded();
+	uint32_t targetStarId = star->GetID().internalValue;
+
+	for (const auto& route : galacticTradeRoutes) {
+		if (route.starIdA != targetStarId && route.starIdB != targetStarId) continue;
+
+		uint32_t otherStarId = (route.starIdA == targetStarId) ? route.starIdB : route.starIdA;
+		cStarRecord* otherStar = StarManager.GetStarRecord(StarID(otherStarId));
+		if (!otherStar || otherStar->mEmpireID == 0) continue;
+
+		outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(otherStar);
+		return true;
+	}
+	return false;
+}
+
+
 void cSpaceCombatMetrics::EnsurePersistenceLoaded()
 {
 	if (persistenceImported || !IsSpaceGame()) return;
