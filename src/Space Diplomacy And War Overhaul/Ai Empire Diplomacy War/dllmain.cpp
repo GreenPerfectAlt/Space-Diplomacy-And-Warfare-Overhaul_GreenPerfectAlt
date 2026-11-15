@@ -185,11 +185,7 @@ member_detour(CameraUpdatePreRender__detour, App::cCameraManager, void(int))
 			Transform tr = ship->mpModel->GetTransform();
 			tr.SetScale(visualScale);
 			ship->mpModel->SetTransform(tr);
-			Transform tr = ship->mpModel->GetTransform();
-			tr.SetScale(visualScale);
-			ship->mpModel->SetTransform(tr);
-
-
+			
 			if (kv.second.auraFx != nullptr) {
 				float auraSc = (kv.second.targetScale >= 1.85f) ? 0.28f : 0.14f;
 				kv.second.auraFx->SetSourceTransform(
