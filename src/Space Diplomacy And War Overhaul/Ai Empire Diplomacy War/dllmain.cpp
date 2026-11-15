@@ -5,6 +5,7 @@
 #include <Spore/App/cMessageManager.h>
 #include <Spore/App/IMessageManager.h>
 #include "Diplomacy\cDiplomacySystem.h"
+#include <Spore/Graphics/IModelWorld.h>
 #include <Spore/App/cCameraManager.h>
 #include <Spore/Swarm/cEffectsManager.h>
 #include <Spore/Audio/AudioSystem.h>
@@ -137,33 +138,59 @@ public:
 	}
 };
 
-// 2. Принудительное масштабирование 3D-меша СТРОГО перед отрисовкой кадра (после физики НЛО!)
-class cOrbitalPreRenderScaler : public Graphics::IRenderable, public DefaultRefCounted
+static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, float defaultVal)
 {
-public:
-	int AddRef() override { return DefaultRefCounted::AddRef(); }
-	int Release() override { return DefaultRefCounted::Release(); }
+	float val = defaultVal;
+	PropertyListPtr propList;
+	if (PropManager.GetPropertyList(id(propName), 0x02ae0c7e, propList) && propList != nullptr) {
+		App::Property::GetFloat(propList.get(), propID, val);
+	}
+	return val;
+}
 
-	void Render(int flags, int layerIndex, App::cViewer** viewers, Graphics::RenderStatistics& stats) override
+static float ReadWarfareConfigFloat(uint32_t propID, float defaultVal)
+{
+	PropertyListPtr configKeys;
+	if (PropManager.GetPropertyList(id("ConfigurationKeys"), id("SdoConfig"), configKeys) && configKeys != nullptr) {
+		ResourceKey warfareKey;
+		if (App::Property::GetKey(configKeys.get(), 0x0FCF340F, warfareKey)) {
+			PropertyListPtr warfareProp;
+			if (PropManager.GetPropertyList(warfareKey.instanceID, warfareKey.groupID, warfareProp) && warfareProp != nullptr) {
+				float val = defaultVal;
+				if (App::Property::GetFloat(warfareProp.get(), propID, val)) {
+					return val;
+				}
+			}
+		}
+	}
+	return defaultVal;
+}
+
+// Масштабирование 3D-меша сразу после тика камеры (перед рендером, с обновлением GPU через UpdateModel!)
+member_detour(CameraUpdatePreRender__detour, App::cCameraManager, void(int))
+{
+	void detoured(int deltaTime)
 	{
+		original_function(this, deltaTime);
+
 		if (sScaledOrbitalShips.empty() || !IsSpaceGame() || GetCurrentContext() != SpaceContext::Planet) {
 			return;
 		}
 
 		for (auto& kv : sScaledOrbitalShips) {
 			cGameDataUFO* ship = kv.first;
-			if (!ship || ship->mHealthPoints <= 0.0f) continue;
+			if (!ship || ship->mHealthPoints <= 0.0f || ship->mpModel == nullptr) continue;
 
-			// Увеличиваем визуальный масштаб (делаем еще выразительнее: x1.6..x2.5 для грузовиков и боссов!)
-			float visualScale = kv.second.targetScale * 1.25f;
-			if (ship->mpModel != nullptr) {
-				Transform tr = ship->mpModel->GetTransform();
-				tr.SetScale(visualScale);
-				ship->mpModel->SetTransform(tr);
+			float visualScale = kv.second.targetScale * 1.35f;
+			Transform tr = ship->mpModel->GetTransform();
+			tr.SetScale(visualScale);
+			ship->mpModel->SetTransform(tr);
+			if (ship->mpModel->GetModelWorld() != nullptr) {
+				ship->mpModel->GetModelWorld()->UpdateModel(ship->mpModel.get());
 			}
 
 			if (kv.second.auraFx != nullptr) {
-				float auraSc = (kv.second.targetScale >= 1.85f) ? 0.30f : 0.16f;
+				float auraSc = (kv.second.targetScale >= 1.85f) ? 0.28f : 0.14f;
 				kv.second.auraFx->SetSourceTransform(
 					Transform().SetOffset(ship->GetPosition()).SetScale(auraSc));
 			}
@@ -171,7 +198,6 @@ public:
 	}
 };
 
-static intrusive_ptr<cOrbitalPreRenderScaler> sPreRenderScaler;
 
 
 // Слушатель грабежа пряности при сбитии каравана
@@ -261,16 +287,10 @@ void Initialize()
 
 	sConvoyLootListener = new cTradeConvoyLootListener();
 	MessageManager.AddListener(sConvoyLootListener.get(), SimulatorMessages::kMsgCombatantKilled);
-	sPreRenderScaler = new cOrbitalPreRenderScaler();
-	RenderManager.AddRenderable(sPreRenderScaler.get(), Graphics::kRenderQueueMain);
 }
 
 void Dispose()
 {
-	if (sPreRenderScaler != nullptr) {
-		RenderManager.RemoveRenderable(Graphics::kRenderQueueMain);
-		sPreRenderScaler = nullptr;
-	}
 	ClearScaledOrbitalShips();
 	if (sConvoyLootListener != nullptr) {
 		MessageManager.RemoveListener(sConvoyLootListener.get(), SimulatorMessages::kMsgCombatantKilled);
@@ -1034,6 +1054,7 @@ void AttachDetours()
 	SpawnUFO__detour::attach(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)));
 	GenerateNpcPlanetDefenders__detour::attach(Address(ModAPI::ChooseAddress(0x00ffa340, 0x00ff96b0)));
 	NpcToolOnHit__detour::attach(GetAddress(cToolStrategy, OnHit));
+	CameraUpdatePreRender__detour::attach(GetAddress(App::cCameraManager, Update));
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule,
