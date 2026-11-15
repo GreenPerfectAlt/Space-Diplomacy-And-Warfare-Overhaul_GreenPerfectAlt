@@ -89,6 +89,7 @@ public:
 	int ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire* empire, int baseUnitCost, float tradeRange);
 	int BreakTradeRoutesOnWar(Simulator::cEmpire* emp1, Simulator::cEmpire* emp2, int baseUnitCost);
 	Simulator::cEmpire* GetStarActiveTradePartner(Simulator::cStarRecord* star, bool& outBlockaded);
+	void GetStarActiveTradePartners(Simulator::cStarRecord* star, eastl::vector<Simulator::cEmpire*>& outPartners, bool& outBlockaded);
 	bool StarHasAnyActiveTradeRoute(Simulator::cStarRecord* star, bool& outBlockaded);
 	void CalculateDynamicConvoySpecs(Simulator::cPlanetRecord* planet, Simulator::cEmpire* convoyEmpire, int& outShipCount, float& outScaleMult, float& outHpMult);
 
