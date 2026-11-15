@@ -248,7 +248,10 @@ int cSpaceCombatMetrics::GetEmpireTotalTradeRoutes(Simulator::cEmpire* empire)
 	return count;
 }
 
-int cSpaceCombatMetrics::GetActiveTradeRoutesBetweenEmpires(Simulator::cEmpire* emp1, Simulator::cEmpire* emp2, bool includeBlockaded)
+int cSpaceCombatMetrics::GetActiveTradeRoutesBetweenEmpires(
+	Simulator::cEmpire* emp1,
+	Simulator::cEmpire* emp2,
+	bool includeBlockaded)
 {
 	if (!emp1 || !emp2 || emp1 == emp2) return 0;
 	if (GetTradeConfig().incomeMultiplier <= 0.01f) return 0;
@@ -259,40 +262,22 @@ int cSpaceCombatMetrics::GetActiveTradeRoutesBetweenEmpires(Simulator::cEmpire* 
 	uint32_t id2 = emp2->GetEmpireID();
 	int count = 0;
 
-	// Нативная проверка ванильных синих линий Spore через StarManager.mTradeRouteMgr
-	cEmpire* starOwner = StarManager.GetEmpire(star->mEmpireID);
-	cEmpire* playerEmp = GetPlayerEmpire();
-
-	if (starOwner && playerEmp) {
-		if (starOwner != playerEmp) {
-			if (!RelationshipManager.IsAtWar(playerEmp, starOwner) &&
-			    StarManager.mTradeRouteManager.HasTradeRoute(star->GetID(), playerEmp->GetEmpireID())) {
-				outBlockaded = IsStarBlockaded(star);
-				return playerEmp;
+	if (!RelationshipManager.IsAtWar(emp1, emp2)) {
+		for (const auto& st1 : emp1->mStars) {
+			if (st1 != nullptr && StarManager.mTradeRouteManager.HasTradeRoute(st1->GetID(), id2)) {
+				if (includeBlockaded || !IsStarBlockaded(st1.get())) {
+					count++;
+				}
 			}
-		} else {
-			eastl::vector<cStarRecordPtr> nearStars;
-			StarRequestFilter trFilter;
-			trFilter.techLevels = 0;
-			trFilter.AddTechLevel(Simulator::TechLevel::Empire);
-			trFilter.minDistance = 0.1f;
-			trFilter.maxDistance = 25.0f;
-			StarManager.FindStars(star->mPosition, trFilter, nearStars);
-
-			for (const auto& nStar : nearStars) {
-				if (nStar != nullptr && nStar->mEmpireID != 0 && nStar->mEmpireID != star->mEmpireID &&
-				    StarManager.mTradeRouteManager.HasTradeRoute(star->GetID(), nStar->mEmpireID)) {
-					cEmpire* partnerEmp = StarManager.GetEmpire(nStar->mEmpireID);
-					if (partnerEmp && !RelationshipManager.IsAtWar(playerEmp, partnerEmp)) {
-						outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(nStar.get());
-						return partnerEmp;
-					}
+		}
+		for (const auto& st2 : emp2->mStars) {
+			if (st2 != nullptr && StarManager.mTradeRouteManager.HasTradeRoute(st2->GetID(), id1)) {
+				if (includeBlockaded || !IsStarBlockaded(st2.get())) {
+					count++;
 				}
 			}
 		}
 	}
-
-
 
 	for (const auto& route : galacticTradeRoutes) {
 		cStarRecord* sA = StarManager.GetStarRecord(StarID(route.starIdA));
@@ -314,10 +299,8 @@ int cSpaceCombatMetrics::GetTradeAffinityBonus(Simulator::cEmpire* emp1, Simulat
 {
 	SdoTradeConfigValues cfg = GetTradeConfig();
 	if (cfg.incomeMultiplier <= 0.01f) return 0;
-
 	int routes = GetActiveTradeRoutesBetweenEmpires(emp1, emp2, true);
 	if (routes <= 0) return 0;
-
 	if (routes >= cfg.routesPerAffinityPoint * 2) return 2;
 	return 1;
 }
@@ -328,7 +311,6 @@ float cSpaceCombatMetrics::GetTradeWarDeterrenceMultiplier(Simulator::cEmpire* a
 	if (!attacker || !target || cfg.incomeMultiplier <= 0.01f || cfg.warDeterrenceStrength <= 0.01f) {
 		return 1.0f;
 	}
-
 	int routes = GetActiveTradeRoutesBetweenEmpires(attacker, target, true);
 	if (routes <= 0) return 1.0f;
 
@@ -366,7 +348,6 @@ int cSpaceCombatMetrics::ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire*
 		if (originStar && !IsStarBlockaded(originStar)) {
 			float searchRadius = max(tradeRange * 1.35f, 15.0f);
 			eastl::vector<cStarRecordPtr> nearbyStars;
-
 			StarRequestFilter filter;
 			filter.RemoveStarType(Simulator::StarType::None);
 			filter.RemoveStarType(Simulator::StarType::GalacticCore);
@@ -454,7 +435,6 @@ int cSpaceCombatMetrics::ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire*
 		float routeValue = static_cast<float>(baseUnitCost) * 0.45f * routeTypeMult *
 			(1.0f + (arbitrageRatio - 1.0f) * 0.40f * cfg.spiceArbitrageWeight) *
 			(0.75f + min(avgWealth, 8.0f) * 0.15f);
-
 		totalTradeProfit += routeValue;
 	}
 
@@ -474,7 +454,6 @@ int cSpaceCombatMetrics::BreakTradeRoutesOnWar(Simulator::cEmpire* emp1, Simulat
 	for (size_t i = 0; i < galacticTradeRoutes.size(); ) {
 		cStarRecord* sA = StarManager.GetStarRecord(StarID(galacticTradeRoutes[i].starIdA));
 		cStarRecord* sB = StarManager.GetStarRecord(StarID(galacticTradeRoutes[i].starIdB));
-
 		bool betweenThem = sA && sB &&
 			((sA->mEmpireID == id1 && sB->mEmpireID == id2) ||
 			 (sA->mEmpireID == id2 && sB->mEmpireID == id1));
@@ -493,7 +472,6 @@ int cSpaceCombatMetrics::BreakTradeRoutesOnWar(Simulator::cEmpire* emp1, Simulat
 		emp1->mEmpireMoney = max(emp1->mEmpireMoney - shockPenalty, 0);
 		emp2->mEmpireMoney = max(emp2->mEmpireMoney - shockPenalty, 0);
 	}
-
 	return brokenCount;
 }
 
@@ -501,16 +479,15 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 {
 	outBlockaded = false;
 	if (!star || GetTradeConfig().incomeMultiplier <= 0.01f) return nullptr;
-
 	EnsurePersistenceLoaded();
 
-	// 1. Нативная проверка настоящих ванильных синих линий Spore через StarManager.mTradeRouteMgr->HasTradeRoute
 	cEmpire* starOwner = StarManager.GetEmpire(star->mEmpireID);
 	cEmpire* playerEmp = GetPlayerEmpire();
 
-	if (StarManager.mTradeRouteManager.HasTradeRoute(star->GetID()) && starOwner && playerEmp) {
+	if (starOwner && playerEmp) {
 		if (starOwner != playerEmp) {
-			if (!RelationshipManager.IsAtWar(playerEmp, starOwner)) {
+			if (!RelationshipManager.IsAtWar(playerEmp, starOwner) &&
+			    StarManager.mTradeRouteManager.HasTradeRoute(star->GetID(), playerEmp->GetEmpireID())) {
 				outBlockaded = IsStarBlockaded(star);
 				return playerEmp;
 			}
@@ -524,8 +501,8 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 			StarManager.FindStars(star->mPosition, trFilter, nearStars);
 
 			for (const auto& nStar : nearStars) {
-				if (nStar && nStar->mEmpireID != 0 && nStar->mEmpireID != star->mEmpireID &&
-				    StarManager.mTradeRouteManager.HasTradeRoute(star->GetID(), nStar->GetID())) {
+				if (nStar != nullptr && nStar->mEmpireID != 0 && nStar->mEmpireID != star->mEmpireID &&
+				    StarManager.mTradeRouteManager.HasTradeRoute(star->GetID(), nStar->mEmpireID)) {
 					cEmpire* partnerEmp = StarManager.GetEmpire(nStar->mEmpireID);
 					if (partnerEmp && !RelationshipManager.IsAtWar(playerEmp, partnerEmp)) {
 						outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(nStar.get());
@@ -536,12 +513,9 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 		}
 	}
 
-
-	// 2. Проверяем динамическую сеть маршрутов мода
 	uint32_t targetStarId = star->GetID().internalValue;
 	for (const auto& route : galacticTradeRoutes) {
 		if (route.starIdA != targetStarId && route.starIdB != targetStarId) continue;
-
 		uint32_t otherStarId = (route.starIdA == targetStarId) ? route.starIdB : route.starIdA;
 		cStarRecord* otherStar = StarManager.GetStarRecord(StarID(otherStarId));
 		if (!otherStar || otherStar->mEmpireID == 0) continue;
@@ -558,11 +532,6 @@ bool cSpaceCombatMetrics::StarHasAnyActiveTradeRoute(Simulator::cStarRecord* sta
 {
 	outBlockaded = false;
 	if (!star || GetTradeConfig().incomeMultiplier <= 0.01f) return false;
-
-	if (GetStarActiveTradePartner(star, outBlockaded) != nullptr) {
-		return true;
-	}
-
 	if (GetStarActiveTradePartner(star, outBlockaded) != nullptr) {
 		return true;
 	}
@@ -571,7 +540,6 @@ bool cSpaceCombatMetrics::StarHasAnyActiveTradeRoute(Simulator::cStarRecord* sta
 	uint32_t targetStarId = star->GetID().internalValue;
 	for (const auto& route : galacticTradeRoutes) {
 		if (route.starIdA != targetStarId && route.starIdB != targetStarId) continue;
-
 		uint32_t otherStarId = (route.starIdA == targetStarId) ? route.starIdB : route.starIdA;
 		cStarRecord* otherStar = StarManager.GetStarRecord(StarID(otherStarId));
 		if (!otherStar || otherStar->mEmpireID == 0) continue;
@@ -626,7 +594,6 @@ void cSpaceCombatMetrics::CalculateDynamicConvoySpecs(
 void cSpaceCombatMetrics::EnsurePersistenceLoaded()
 {
 	if (persistenceImported || !IsSpaceGame()) return;
-
 	cDatabaseManager* dbMgr = cDatabaseManager::Get();
 	if (dbMgr != nullptr) {
 		cPersistenceState* state = dbMgr->GetPersistenceState();
@@ -639,7 +606,6 @@ void cSpaceCombatMetrics::EnsurePersistenceLoaded()
 void cSpaceCombatMetrics::ExportStateToPersistence(cPersistenceState* state)
 {
 	if (state == nullptr) return;
-
 	EnsurePersistenceLoaded();
 	PruneInvalidTradeRoutes();
 
@@ -652,7 +618,6 @@ void cSpaceCombatMetrics::ExportStateToPersistence(cPersistenceState* state)
 		uint32_t pid = kv.first->GetID().internalValue;
 		uint32_t flags = PackGadgetFlags(kv.second);
 		if (pid == 0 || (flags == 0 && kv.second.aiEmbassyEmpireID == 0)) continue;
-
 		state->aiGadgetPlanetIDs.push_back(pid);
 		state->aiGadgetFlags.push_back(flags);
 		state->aiGadgetEmbassyEmpires.push_back(kv.second.aiEmbassyEmpireID);
@@ -666,7 +631,6 @@ void cSpaceCombatMetrics::ExportStateToPersistence(cPersistenceState* state)
 		if (kv.first == nullptr) continue;
 		uint32_t pid = kv.first->GetID().internalValue;
 		if (pid == 0 || kv.second.first <= 0) continue;
-
 		state->cachedDefensePlanetIDs.push_back(pid);
 		state->cachedDefenseCities.push_back(kv.second.first);
 		state->cachedDefenseTurrets.push_back(kv.second.second);
@@ -674,6 +638,7 @@ void cSpaceCombatMetrics::ExportStateToPersistence(cPersistenceState* state)
 
 	state->tradeRouteStarA.clear();
 	state->tradeRouteStarB.clear();
+
 	for (const auto& route : galacticTradeRoutes) {
 		if (route.starIdA != 0 && route.starIdB != 0) {
 			state->tradeRouteStarA.push_back(route.starIdA);
@@ -685,7 +650,6 @@ void cSpaceCombatMetrics::ExportStateToPersistence(cPersistenceState* state)
 void cSpaceCombatMetrics::ImportStateFromPersistence(const cPersistenceState* state)
 {
 	if (state == nullptr || !IsSpaceGame()) return;
-
 	persistenceImported = true;
 
 	size_t gadgetCount = min(state->aiGadgetPlanetIDs.size(), state->aiGadgetFlags.size());
@@ -693,7 +657,6 @@ void cSpaceCombatMetrics::ImportStateFromPersistence(const cPersistenceState* st
 		PlanetID pid(state->aiGadgetPlanetIDs[i]);
 		cPlanetRecord* planet = StarManager.GetPlanetRecord(pid);
 		if (planet == nullptr) continue;
-
 		uint32_t embID = (i < state->aiGadgetEmbassyEmpires.size()) ? state->aiGadgetEmbassyEmpires[i] : 0;
 		SdoPlanetGadgetInfo unpacked = UnpackGadgetFlags(state->aiGadgetFlags[i], embID);
 		RegisterAiGadgetPurchase(planet, unpacked);
@@ -704,7 +667,6 @@ void cSpaceCombatMetrics::ImportStateFromPersistence(const cPersistenceState* st
 		PlanetID pid(state->cachedDefensePlanetIDs[i]);
 		cPlanetRecord* planet = StarManager.GetPlanetRecord(pid);
 		if (planet == nullptr) continue;
-
 		if (planetDefenseCache.find(cPlanetRecordPtr(planet)) == planetDefenseCache.end()) {
 			planetDefenseCache[cPlanetRecordPtr(planet)] = eastl::make_pair(state->cachedDefenseCities[i], state->cachedDefenseTurrets[i]);
 		}
@@ -750,25 +712,24 @@ void cSpaceCombatMetrics::RegisterAiGadgetPurchase(Simulator::cPlanetRecord* pla
 {
 	if (planet == nullptr) return;
 	SdoPlanetGadgetInfo& current = aiPurchasedGadgets[cPlanetRecordPtr(planet)];
-	if (purchasedInfo.hasLoyaltyBooster) current.hasLoyaltyBooster = true;
+	if (purchasedInfo.hasLoyaltyBooster)   current.hasLoyaltyBooster = true;
 	if (purchasedInfo.hasHappinessBooster) current.hasHappinessBooster = true;
-	if (purchasedInfo.hasUberTurret) current.hasUberTurret = true;
-	if (purchasedInfo.hasSpiceStorage) current.hasSpiceStorage = true;
-	if (purchasedInfo.hasBioProtector) current.hasBioProtector = true;
-	if (purchasedInfo.hasEmbassy) current.hasEmbassy = true;
+	if (purchasedInfo.hasUberTurret)       current.hasUberTurret = true;
+	if (purchasedInfo.hasSpiceStorage)     current.hasSpiceStorage = true;
+	if (purchasedInfo.hasBioProtector)     current.hasBioProtector = true;
+	if (purchasedInfo.hasEmbassy)          current.hasEmbassy = true;
 	if (purchasedInfo.aiEmbassyEmpireID != 0) current.aiEmbassyEmpireID = purchasedInfo.aiEmbassyEmpireID;
 }
 
 void cSpaceCombatMetrics::UpdatePlanetDefenseCache(Simulator::cPlanetRecord* planet)
 {
 	if (planet == nullptr) return;
-
 	EnsurePersistenceLoaded();
 
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
 		int cityCount = 0;
 		int turretCount = 0;
-		const auto& cities = Simulator::GetData<cCity>();
+		const auto& cities = Simulator::GetData<Simulator::cCity>();
 		for (const auto& city : cities) {
 			if (city) {
 				cityCount++;
@@ -781,7 +742,7 @@ void cSpaceCombatMetrics::UpdatePlanetDefenseCache(Simulator::cPlanetRecord* pla
 
 		SdoPlanetGadgetInfo info;
 		if (GetExternalGadgetMultiplier() > 0.01f) {
-			const auto& spatials = Simulator::GetDataByCast<cSpatialObject>();
+			const auto& spatials = Simulator::GetDataByCast<Simulator::cSpatialObject>();
 			for (const auto& sp : spatials) {
 				if (!sp) continue;
 				cCombatant* asComb = object_cast<cCombatant>(sp.get());
@@ -815,7 +776,6 @@ SdoPlanetGadgetInfo cSpaceCombatMetrics::GetPlanetGadgetInfo(Simulator::cPlanetR
 	}
 
 	EnsurePersistenceLoaded();
-
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
 		UpdatePlanetDefenseCache(planet);
 	}
@@ -827,15 +787,14 @@ SdoPlanetGadgetInfo cSpaceCombatMetrics::GetPlanetGadgetInfo(Simulator::cPlanetR
 
 	auto itAi = aiPurchasedGadgets.find(cPlanetRecordPtr(planet));
 	if (itAi != aiPurchasedGadgets.end()) {
-		if (itAi->second.hasLoyaltyBooster) mergedInfo.hasLoyaltyBooster = true;
+		if (itAi->second.hasLoyaltyBooster)   mergedInfo.hasLoyaltyBooster = true;
 		if (itAi->second.hasHappinessBooster) mergedInfo.hasHappinessBooster = true;
-		if (itAi->second.hasUberTurret) mergedInfo.hasUberTurret = true;
-		if (itAi->second.hasSpiceStorage) mergedInfo.hasSpiceStorage = true;
-		if (itAi->second.hasBioProtector) mergedInfo.hasBioProtector = true;
-		if (itAi->second.hasEmbassy) mergedInfo.hasEmbassy = true;
+		if (itAi->second.hasUberTurret)       mergedInfo.hasUberTurret = true;
+		if (itAi->second.hasSpiceStorage)     mergedInfo.hasSpiceStorage = true;
+		if (itAi->second.hasBioProtector)     mergedInfo.hasBioProtector = true;
+		if (itAi->second.hasEmbassy)          mergedInfo.hasEmbassy = true;
 		if (itAi->second.aiEmbassyEmpireID != 0) mergedInfo.aiEmbassyEmpireID = itAi->second.aiEmbassyEmpireID;
 	}
-
 	return mergedInfo;
 }
 
@@ -894,55 +853,53 @@ float cSpaceCombatMetrics::GetTurretHealthByLevel(int empireLevel)
 }
 
 int cSpaceCombatMetrics::GetDefendersInOutpost() { return numDefendersInOutpost; }
-int cSpaceCombatMetrics::GetDefendersInColony() { return numDefendersInColony; }
-int cSpaceCombatMetrics::GetFightersPerBomber() { return numFightersPerBomber; }
-int cSpaceCombatMetrics::GetTurretsInT1() { return numTurretsInT1; }
-int cSpaceCombatMetrics::GetTurretsInT2() { return numTurretsInT2; }
-int cSpaceCombatMetrics::GetTurretsInT3() { return numTurretsInT3; }
+int cSpaceCombatMetrics::GetDefendersInColony()  { return numDefendersInColony; }
+int cSpaceCombatMetrics::GetFightersPerBomber()  { return numFightersPerBomber; }
+int cSpaceCombatMetrics::GetTurretsInT1()        { return numTurretsInT1; }
+int cSpaceCombatMetrics::GetTurretsInT2()        { return numTurretsInT2; }
+int cSpaceCombatMetrics::GetTurretsInT3()        { return numTurretsInT3; }
 
 float cSpaceCombatMetrics::GetBomberHealthByEmpire(Simulator::cEmpire* empire)
 {
 	if (empire == nullptr) return GetBomberHealthByLevel(0);
-
 	float baseHealth = GetBomberHealthByLevel(empire->GetWeaponryLevel());
 	float levelFactor = static_cast<float>(empire->GetWeaponryLevel() + 1) / 5.0f;
 	Simulator::Archetypes baseArchetype = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
 
 	switch (baseArchetype) {
-		case Archetypes::kArchetypeWarrior:
-		case Archetypes::kArchetypeZealot:
-		case Archetypes::kArchetypeGrob:
-			return baseHealth * (1.0f + (0.25f * levelFactor));
-		case Archetypes::kArchetypeScientist:
-			return baseHealth * (1.0f + (0.10f * levelFactor));
-		case Archetypes::kArchetypeBard:
-		case Archetypes::kArchetypeDiplomat:
-			return baseHealth * (1.0f - (0.20f * (1.0f - levelFactor * 0.5f)));
-		default:
-			return baseHealth;
+	case Archetypes::kArchetypeWarrior:
+	case Archetypes::kArchetypeZealot:
+	case Archetypes::kArchetypeGrob:
+		return baseHealth * (1.0f + (0.25f * levelFactor));
+	case Archetypes::kArchetypeScientist:
+		return baseHealth * (1.0f + (0.10f * levelFactor));
+	case Archetypes::kArchetypeBard:
+	case Archetypes::kArchetypeDiplomat:
+		return baseHealth * (1.0f - (0.20f * (1.0f - levelFactor * 0.5f)));
+	default:
+		return baseHealth;
 	}
 }
 
 float cSpaceCombatMetrics::GetFighterHealthByEmpire(Simulator::cEmpire* empire)
 {
 	if (empire == nullptr) return GetFighterHealthByLevel(0);
-
 	float baseHealth = GetFighterHealthByLevel(empire->GetWeaponryLevel());
 	float levelFactor = static_cast<float>(empire->GetWeaponryLevel() + 1) / 5.0f;
 	Simulator::Archetypes baseArchetype = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
 
 	switch (baseArchetype) {
-		case Archetypes::kArchetypeWarrior:
-		case Archetypes::kArchetypeZealot:
-		case Archetypes::kArchetypeGrob:
-			return baseHealth * (1.0f + (0.20f * levelFactor));
-		case Archetypes::kArchetypeScientist:
-			return baseHealth * (1.0f + (0.10f * levelFactor));
-		case Archetypes::kArchetypeBard:
-		case Archetypes::kArchetypeDiplomat:
-			return baseHealth * (1.0f - (0.15f * (1.0f - levelFactor * 0.5f)));
-		default:
-			return baseHealth;
+	case Archetypes::kArchetypeWarrior:
+	case Archetypes::kArchetypeZealot:
+	case Archetypes::kArchetypeGrob:
+		return baseHealth * (1.0f + (0.20f * levelFactor));
+	case Archetypes::kArchetypeScientist:
+		return baseHealth * (1.0f + (0.10f * levelFactor));
+	case Archetypes::kArchetypeBard:
+	case Archetypes::kArchetypeDiplomat:
+		return baseHealth * (1.0f - (0.15f * (1.0f - levelFactor * 0.5f)));
+	default:
+		return baseHealth;
 	}
 }
 
@@ -974,17 +931,17 @@ float cSpaceCombatMetrics::GetDefenderHealthByEmpire(Simulator::cEmpire* empire)
 	Simulator::Archetypes baseArchetype = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
 
 	switch (baseArchetype) {
-		case Archetypes::kArchetypeWarrior:
-		case Archetypes::kArchetypeZealot:
-		case Archetypes::kArchetypeGrob:
-			return baseHealth * (1.0f + (0.25f * levelFactor));
-		case Archetypes::kArchetypeScientist:
-			return baseHealth * (1.0f + (0.10f * levelFactor));
-		case Archetypes::kArchetypeBard:
-		case Archetypes::kArchetypeDiplomat:
-			return baseHealth * (1.0f - (0.20f * (1.0f - levelFactor * 0.5f)));
-		default:
-			return baseHealth;
+	case Archetypes::kArchetypeWarrior:
+	case Archetypes::kArchetypeZealot:
+	case Archetypes::kArchetypeGrob:
+		return baseHealth * (1.0f + (0.25f * levelFactor));
+	case Archetypes::kArchetypeScientist:
+		return baseHealth * (1.0f + (0.10f * levelFactor));
+	case Archetypes::kArchetypeBard:
+	case Archetypes::kArchetypeDiplomat:
+		return baseHealth * (1.0f - (0.20f * (1.0f - levelFactor * 0.5f)));
+	default:
+		return baseHealth;
 	}
 }
 
@@ -1056,41 +1013,35 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 	if (planet->mType != PlanetType::T0 && empire != nullptr) {
 		Simulator::Archetypes baseArchetype = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
 		float archetypeMultiplier = 1.0f;
-
 		switch (baseArchetype) {
-			case Archetypes::kArchetypeWarrior:
-			case Archetypes::kArchetypeZealot:
-			case Archetypes::kArchetypeGrob:
-				archetypeMultiplier = 2.5f;
-				break;
-			case Archetypes::kArchetypeScientist:
-			case Archetypes::kArchetypeTrader:
-				archetypeMultiplier = 1.6f;
-				break;
-			case Archetypes::kArchetypeEcologist:
-				archetypeMultiplier = 1.2f;
-				break;
-			default:
-				archetypeMultiplier = 0.8f;
-				break;
+		case Archetypes::kArchetypeWarrior:
+		case Archetypes::kArchetypeZealot:
+		case Archetypes::kArchetypeGrob:
+			archetypeMultiplier = 2.5f;
+			break;
+		case Archetypes::kArchetypeScientist:
+		case Archetypes::kArchetypeTrader:
+			archetypeMultiplier = 1.6f;
+			break;
+		case Archetypes::kArchetypeEcologist:
+			archetypeMultiplier = 1.2f;
+			break;
+		default:
+			archetypeMultiplier = 0.8f;
+			break;
 		}
 
-		float tScoreFactor = (planet->mType == PlanetType::T3) ? 1.5f : ((planet->mType == PlanetType::T2) ? 1.0f : 0.6f);
-		if (PlanetUtils::Homeworld(planet)) {
-			tScoreFactor *= 1.35f;
-		}
-		baseDefenders = max(static_cast<int>(round(static_cast<float>(baseColonyDefenders) * archetypeMultiplier * tScoreFactor)), 2);
+		float weaponLevelBonus = (empire->GetWeaponryLevel() + 1) * 0.6f;
+		baseDefenders = static_cast<int>(round((baseDefenders + weaponLevelBonus) * archetypeMultiplier));
 	}
 
 	int standardCities = (planet->mType == PlanetType::T3) ? 3 : ((planet->mType == PlanetType::T2) ? 2 : 1);
 	if (cachedCities > standardCities) {
 		baseDefenders += (cachedCities - standardCities) * max(baseColonyDefenders / 2, 1);
 	}
-
 	if (gadgets.hasSpiceStorage) {
 		baseDefenders = static_cast<int>(round(static_cast<float>(baseDefenders) * (1.0f + 0.25f * GetExternalGadgetMultiplier())));
 	}
-
 	return baseDefenders;
 }
 
@@ -1104,23 +1055,24 @@ int cSpaceCombatMetrics::GetTurretsInPlanet(Simulator::cPlanetRecord* planet)
 
 	int baseTurrets = 0;
 	int standardCities = 1;
+
 	switch (planet->mType) {
-		case(PlanetType::T1):
-			baseTurrets = GetTurretsInT1();
-			standardCities = 1;
-			break;
-		case(PlanetType::T2):
-			baseTurrets = GetTurretsInT2();
-			standardCities = 2;
-			break;
-		case(PlanetType::T3):
-			baseTurrets = GetTurretsInT3();
-			standardCities = 3;
-			break;
-		default:
-			baseTurrets = 0;
-			standardCities = 1;
-			break;
+	case(PlanetType::T1):
+		baseTurrets = GetTurretsInT1();
+		standardCities = 1;
+		break;
+	case(PlanetType::T2):
+		baseTurrets = GetTurretsInT2();
+		standardCities = 2;
+		break;
+	case(PlanetType::T3):
+		baseTurrets = GetTurretsInT3();
+		standardCities = 3;
+		break;
+	default:
+		baseTurrets = 0;
+		standardCities = 1;
+		break;
 	}
 
 	int finalTurrets = baseTurrets;
@@ -1129,10 +1081,8 @@ int cSpaceCombatMetrics::GetTurretsInPlanet(Simulator::cPlanetRecord* planet)
 			finalTurrets = cachedTurrets;
 		}
 	}
-
 	if (GetPlanetGadgetInfo(planet).hasUberTurret) {
 		finalTurrets += static_cast<int>(round(14.0f * GetExternalGadgetMultiplier()));
 	}
-
 	return finalTurrets;
 }
