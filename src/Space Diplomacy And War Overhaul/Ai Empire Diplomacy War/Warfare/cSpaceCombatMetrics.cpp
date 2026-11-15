@@ -511,8 +511,7 @@ void cSpaceCombatMetrics::GetStarActiveTradePartners(
 				} else {
 					for (const auto& pStar : playerEmp->mStars) {
 						if (pStar != nullptr &&
-						    StarManager.mTradeRouteManager.HasTradeRoute(pStar->GetID(), starOwner->GetEmpireID()) &&
-						    StarUtils::GetDistanceBetweenStars(star, pStar.get()) <= 25.0f) {
+						    StarManager.mTradeRouteManager.HasTradeRoute(pStar->GetID(), starOwner->GetEmpireID())) {
 							if (IsStarBlockaded(pStar.get())) outBlockaded = true;
 							addUniquePartner(playerEmp);
 							break;
