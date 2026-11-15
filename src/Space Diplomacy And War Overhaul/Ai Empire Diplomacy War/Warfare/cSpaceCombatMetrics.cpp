@@ -260,18 +260,38 @@ int cSpaceCombatMetrics::GetActiveTradeRoutesBetweenEmpires(Simulator::cEmpire* 
 	int count = 0;
 
 	// Нативная проверка ванильных синих линий Spore через StarManager.mTradeRouteMgr
-	if (!RelationshipManager.IsAtWar(emp1, emp2)) {
-		for (const auto& st1 : emp1->mStars) {
-			if (!st1 || !StarManager.mTradeRouteManager.HasTradeRoute(st1->GetID())) continue;
-			for (const auto& st2 : emp2->mStars) {
-				if (st2 && StarManager.mTradeRouteManager.HasTradeRoute(st1->GetID(), st2->GetID())) {
-					if (includeBlockaded || (!IsStarBlockaded(st1.get()) && !IsStarBlockaded(st2.get()))) {
-						count++;
+	cEmpire* starOwner = StarManager.GetEmpire(star->mEmpireID);
+	cEmpire* playerEmp = GetPlayerEmpire();
+
+	if (starOwner && playerEmp) {
+		if (starOwner != playerEmp) {
+			if (!RelationshipManager.IsAtWar(playerEmp, starOwner) &&
+			    StarManager.mTradeRouteManager.HasTradeRoute(star->GetID(), playerEmp->GetEmpireID())) {
+				outBlockaded = IsStarBlockaded(star);
+				return playerEmp;
+			}
+		} else {
+			eastl::vector<cStarRecordPtr> nearStars;
+			StarRequestFilter trFilter;
+			trFilter.techLevels = 0;
+			trFilter.AddTechLevel(Simulator::TechLevel::Empire);
+			trFilter.minDistance = 0.1f;
+			trFilter.maxDistance = 25.0f;
+			StarManager.FindStars(star->mPosition, trFilter, nearStars);
+
+			for (const auto& nStar : nearStars) {
+				if (nStar != nullptr && nStar->mEmpireID != 0 && nStar->mEmpireID != star->mEmpireID &&
+				    StarManager.mTradeRouteManager.HasTradeRoute(star->GetID(), nStar->mEmpireID)) {
+					cEmpire* partnerEmp = StarManager.GetEmpire(nStar->mEmpireID);
+					if (partnerEmp && !RelationshipManager.IsAtWar(playerEmp, partnerEmp)) {
+						outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(nStar.get());
+						return partnerEmp;
 					}
 				}
 			}
 		}
 	}
+
 
 
 	for (const auto& route : galacticTradeRoutes) {
@@ -539,8 +559,7 @@ bool cSpaceCombatMetrics::StarHasAnyActiveTradeRoute(Simulator::cStarRecord* sta
 	outBlockaded = false;
 	if (!star || GetTradeConfig().incomeMultiplier <= 0.01f) return false;
 
-	if (StarManager.mTradeRouteManager.HasTradeRoute(star->GetID())) {
-		outBlockaded = IsStarBlockaded(star);
+	if (GetStarActiveTradePartner(star, outBlockaded) != nullptr) {
 		return true;
 	}
 
