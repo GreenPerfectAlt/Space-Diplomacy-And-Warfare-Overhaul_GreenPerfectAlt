@@ -7,6 +7,7 @@
 #include "Diplomacy\cDiplomacySystem.h"
 #include <Spore/App/cCameraManager.h>
 #include <Spore/Swarm/cEffectsManager.h>
+#include <Spore/Graphics/IRenderManager.h>
 #include <Spore/Audio/AudioSystem.h>
 #include <Spore/Simulator/cCity.h>
 #include <Spore/Simulator/cBuilding.h>
@@ -65,14 +66,14 @@ static void StartLoopingShipAura(cGameDataUFO* ufo, float scaleMult, IVisualEffe
 	outFx = nullptr;
 	if (!ufo) return;
 
-	// Список настоящих бесконечных (looping) эффектов свечения из ресурсов Spore
 	const uint32_t bossCandidates[]   = { id("spc_antimatter_trail"), id("spc_proton_missile_trail"), id("spc_rare_glow"), 0x03F4D1A2 };
-	const uint32_t convoyCandidates[] = { id("spc_rare_glow"), id("spc_spice_geyser_glow"), id("spc_energy_mega_trail"), id("spc_shield_recharge") };
+	const uint32_t convoyCandidates[] = { id("spc_energy_mega_trail"), id("spc_rare_glow"), id("spc_spice_geyser_glow"), id("spc_shield_recharge") };
 
 	const uint32_t* list = isBossDreadnought ? bossCandidates : convoyCandidates;
+	float auraScale = isBossDreadnought ? 0.30f : 0.16f; // Аккуратный ореол по размеру корабля вместо огромного купола!
 	for (int i = 0; i < 4; ++i) {
 		if (EffectsManager.CreateVisualEffect(list[i], 0, outFx) && outFx != nullptr) {
-			outFx->SetSourceTransform(Transform().SetOffset(ufo->GetPosition()).SetScale(scaleMult * 0.85f));
+			outFx->SetSourceTransform(Transform().SetOffset(ufo->GetPosition()).SetScale(auraScale));
 			outFx->Start();
 			break;
 		}
@@ -91,36 +92,7 @@ static void RegisterScaledOrbitalShip(cGameDataUFO* ufo, float scaleMult, uint32
 	sScaledOrbitalShips[ufo] = vis;
 }
 
-static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, float defaultVal)
-{
-	float val = defaultVal;
-	PropertyListPtr propList;
-	if (PropManager.GetPropertyList(id(propName), 0x02ae0c7e, propList) && propList != nullptr) {
-		App::Property::GetFloat(propList.get(), propID, val);
-	}
-	return val;
-}
-
-static float ReadWarfareConfigFloat(uint32_t propID, float defaultVal)
-{
-	PropertyListPtr configKeys;
-	if (PropManager.GetPropertyList(id("ConfigurationKeys"), id("SdoConfig"), configKeys) && configKeys != nullptr) {
-		ResourceKey warfareKey;
-		if (App::Property::GetKey(configKeys.get(), 0x0FCF340F, warfareKey)) {
-			PropertyListPtr warfareProp;
-			if (PropManager.GetPropertyList(warfareKey.instanceID, warfareKey.groupID, warfareProp) && warfareProp != nullptr) {
-				float val = defaultVal;
-				if (App::Property::GetFloat(warfareProp.get(), propID, val)) {
-					return val;
-				}
-			}
-		}
-	}
-	return defaultVal;
-}
-
-
-// Настоящая стратегия симулятора: держит 3D-масштаб модели и ауру строго внутри тика планеты!
+// 1. Очистка мертвых кораблей в тике симулятора
 class cOrbitalVisualsStrategy : public Simulator::cStrategy
 {
 public:
@@ -154,32 +126,54 @@ public:
 		}
 
 		for (auto it = sScaledOrbitalShips.begin(); it != sScaledOrbitalShips.end(); ) {
-			cGameDataUFO* ship = it->first;
-			if (liveUfos.find(ship) == liveUfos.end()) {
+			if (liveUfos.find(it->first) == liveUfos.end()) {
 				if (it->second.auraFx != nullptr) {
 					it->second.auraFx->Stop(0);
 				}
 				it = sScaledOrbitalShips.erase(it);
 				continue;
 			}
-
-			float sc = it->second.targetScale;
-			ship->SetScale(sc);
-			// Принудительно обновляем масштаб самой графической 3D-модели в GraphicsWorld!
-			if (ship->mpModel != nullptr) {
-				Transform tr = ship->mpModel->GetTransform();
-				tr.SetScale(sc);
-				ship->mpModel->SetTransform(tr);
-			}
-
-			if (it->second.auraFx != nullptr) {
-				it->second.auraFx->SetSourceTransform(
-					Transform().SetOffset(ship->GetPosition()).SetScale(sc * 0.85f));
-			}
 			++it;
 		}
 	}
 };
+
+// 2. Принудительное масштабирование 3D-меша СТРОГО перед отрисовкой кадра (после физики НЛО!)
+class cOrbitalPreRenderScaler : public Graphics::IRenderable, public DefaultRefCounted
+{
+public:
+	int AddRef() override { return DefaultRefCounted::AddRef(); }
+	int Release() override { return DefaultRefCounted::Release(); }
+
+	void Render(int flags, int layerIndex, App::cViewer** viewers, Graphics::RenderStatistics& stats) override
+	{
+		if (sScaledOrbitalShips.empty() || !IsSpaceGame() || GetCurrentContext() != SpaceContext::Planet) {
+			return;
+		}
+
+		for (auto& kv : sScaledOrbitalShips) {
+			cGameDataUFO* ship = kv.first;
+			if (!ship || ship->mHealthPoints <= 0.0f) continue;
+
+			// Увеличиваем визуальный масштаб (делаем еще выразительнее: x1.6..x2.5 для грузовиков и боссов!)
+			float visualScale = kv.second.targetScale * 1.25f;
+			if (ship->mpModel != nullptr) {
+				Transform tr = ship->mpModel->GetTransform();
+				tr.SetScale(visualScale);
+				ship->mpModel->SetTransform(tr);
+			}
+
+			if (kv.second.auraFx != nullptr) {
+				float auraSc = (kv.second.targetScale >= 1.85f) ? 0.30f : 0.16f;
+				kv.second.auraFx->SetSourceTransform(
+					Transform().SetOffset(ship->GetPosition()).SetScale(auraSc));
+			}
+		}
+	}
+};
+
+static intrusive_ptr<cOrbitalPreRenderScaler> sPreRenderScaler;
+
 
 // Слушатель грабежа пряности при сбитии каравана
 class cTradeConvoyLootListener : public App::IMessageListener, public DefaultRefCounted
@@ -268,10 +262,16 @@ void Initialize()
 
 	sConvoyLootListener = new cTradeConvoyLootListener();
 	MessageManager.AddListener(sConvoyLootListener.get(), SimulatorMessages::kMsgCombatantKilled);
+	sPreRenderScaler = new cOrbitalPreRenderScaler();
+	RenderManager.AddRenderable(sPreRenderScaler.get(), Graphics::kRenderQueueMain);
 }
 
 void Dispose()
 {
+	if (sPreRenderScaler != nullptr) {
+		RenderManager.RemoveRenderable(Graphics::kRenderQueueMain);
+		sPreRenderScaler = nullptr;
+	}
 	ClearScaledOrbitalShips();
 	if (sConvoyLootListener != nullptr) {
 		MessageManager.RemoveListener(sConvoyLootListener.get(), SimulatorMessages::kMsgCombatantKilled);
