@@ -260,11 +260,11 @@ int cSpaceCombatMetrics::GetActiveTradeRoutesBetweenEmpires(Simulator::cEmpire* 
 	int count = 0;
 
 	// Нативная проверка ванильных синих линий Spore через StarManager.mTradeRouteMgr
-	if (StarManager.mTradeRouteMgr != nullptr && !RelationshipManager.IsAtWar(emp1, emp2)) {
+	if (• StarManager.mTradeRouteManager != nullptr && !RelationshipManager.IsAtWar(emp1, emp2)) {
 		for (const auto& st1 : emp1->mStars) {
-			if (!st1 || !StarManager.mTradeRouteMgr->HasTradeRoute(st1->GetID())) continue;
+			if (!st1 || !StarManager.mTradeRouteManager->StarHasTradeRoute(st1->GetID())) continue;
 			for (const auto& st2 : emp2->mStars) {
-				if (st2 && StarManager.mTradeRouteMgr->HasTradeRoute(st2->GetID()) &&
+				if (st2 && StarManager.mTradeRouteManager->StarHasTradeRoute(st2->GetID()) &&
 				    StarUtils::GetDistanceBetweenStars(st1.get(), st2.get()) <= 20.0f) {
 					if (includeBlockaded || (!IsStarBlockaded(st1.get()) && !IsStarBlockaded(st2.get()))) {
 						count++;
@@ -489,7 +489,7 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 	cEmpire* starOwner = StarManager.GetEmpire(star->mEmpireID);
 	cEmpire* playerEmp = GetPlayerEmpire();
 
-	if (StarManager.mTradeRouteMgr != nullptr && StarManager.mTradeRouteMgr->HasTradeRoute(star->GetID()) && starOwner && playerEmp) {
+	if (• StarManager.mTradeRouteManager != nullptr && StarManager.mTradeRouteManager->StarHasTradeRoute(star->GetID()) && starOwner && playerEmp) {
 		if (starOwner != playerEmp) {
 			if (!RelationshipManager.IsAtWar(playerEmp, starOwner)) {
 				outBlockaded = IsStarBlockaded(star);
@@ -506,7 +506,7 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 
 			for (const auto& nStar : nearStars) {
 				if (nStar && nStar->mEmpireID != 0 && nStar->mEmpireID != star->mEmpireID &&
-				    StarManager.mTradeRouteMgr->HasTradeRoute(nStar->GetID())) {
+				    StarManager.mTradeRouteManager->StarHasTradeRoute(nStar->GetID())) {
 					cEmpire* partnerEmp = StarManager.GetEmpire(nStar->mEmpireID);
 					if (partnerEmp && !RelationshipManager.IsAtWar(playerEmp, partnerEmp)) {
 						outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(nStar.get());
@@ -539,7 +539,7 @@ bool cSpaceCombatMetrics::StarHasAnyActiveTradeRoute(Simulator::cStarRecord* sta
 	outBlockaded = false;
 	if (!star || GetTradeConfig().incomeMultiplier <= 0.01f) return false;
 
-	if (StarManager.mTradeRouteMgr != nullptr && StarManager.mTradeRouteMgr->HasTradeRoute(star->GetID())) {
+	if (• StarManager.mTradeRouteManager != nullptr && StarManager.mTradeRouteManager->StarHasTradeRoute(star->GetID())) {
 		outBlockaded = IsStarBlockaded(star);
 		return true;
 	}
