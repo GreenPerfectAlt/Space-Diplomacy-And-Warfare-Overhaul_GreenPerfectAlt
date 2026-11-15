@@ -7,7 +7,6 @@
 #include "Diplomacy\cDiplomacySystem.h"
 #include <Spore/App/cCameraManager.h>
 #include <Spore/Swarm/cEffectsManager.h>
-#include <Spore/Graphics/IRenderManager.h>
 #include <Spore/Audio/AudioSystem.h>
 #include <Spore/Simulator/cCity.h>
 #include <Spore/Simulator/cBuilding.h>
