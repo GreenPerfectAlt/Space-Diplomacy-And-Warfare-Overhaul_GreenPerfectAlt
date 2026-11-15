@@ -682,7 +682,7 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 		}
 
 		if (ownerEmpire == GetPlayerEmpire()) {
-			if (ufoType == UfoType::Defender || ufoType == UfoType::Tourist) {
+			if (ufoType == UfoType::Defender || static_cast<int>(ufoType) == 3) {
 				return ufo;
 			}
 			if (gadgetMult > 0.01f && ufoType != UfoType::Bomber) {
@@ -833,7 +833,7 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 
 						int* pPartnerPolID = &tradePartner->mPoliticalID;
 						ResourceKey* pPartnerKey = &tradePartner->mUFOKey;
-						UfoType guestUfoType = (tradePartner == GetPlayerEmpire()) ? UfoType::Tourist : UfoType::Defender;
+						UfoType guestUfoType = (tradePartner == GetPlayerEmpire()) ? static_cast<UfoType>(3) : UfoType::Defender;
 
 						for (int c = 0; c < partnerCount; ++c) {
 							cGameDataUFO* freighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
