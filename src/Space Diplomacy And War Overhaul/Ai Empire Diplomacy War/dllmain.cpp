@@ -91,6 +91,35 @@ static void RegisterScaledOrbitalShip(cGameDataUFO* ufo, float scaleMult, uint32
 	sScaledOrbitalShips[ufo] = vis;
 }
 
+static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, float defaultVal)
+{
+	float val = defaultVal;
+	PropertyListPtr propList;
+	if (PropManager.GetPropertyList(id(propName), 0x02ae0c7e, propList) && propList != nullptr) {
+		App::Property::GetFloat(propList.get(), propID, val);
+	}
+	return val;
+}
+
+static float ReadWarfareConfigFloat(uint32_t propID, float defaultVal)
+{
+	PropertyListPtr configKeys;
+	if (PropManager.GetPropertyList(id("ConfigurationKeys"), id("SdoConfig"), configKeys) && configKeys != nullptr) {
+		ResourceKey warfareKey;
+		if (App::Property::GetKey(configKeys.get(), 0x0FCF340F, warfareKey)) {
+			PropertyListPtr warfareProp;
+			if (PropManager.GetPropertyList(warfareKey.instanceID, warfareKey.groupID, warfareProp) && warfareProp != nullptr) {
+				float val = defaultVal;
+				if (App::Property::GetFloat(warfareProp.get(), propID, val)) {
+					return val;
+				}
+			}
+		}
+	}
+	return defaultVal;
+}
+
+
 // Настоящая стратегия симулятора: держит 3D-масштаб модели и ауру строго внутри тика планеты!
 class cOrbitalVisualsStrategy : public Simulator::cStrategy
 {
