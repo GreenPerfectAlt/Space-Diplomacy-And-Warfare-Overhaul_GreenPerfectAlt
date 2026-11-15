@@ -475,21 +475,50 @@ int cSpaceCombatMetrics::BreakTradeRoutesOnWar(Simulator::cEmpire* emp1, Simulat
 	return brokenCount;
 }
 
-Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cStarRecord* star, bool& outBlockaded)
+void cSpaceCombatMetrics::GetStarActiveTradePartners(
+	Simulator::cStarRecord* star,
+	eastl::vector<Simulator::cEmpire*>& outPartners,
+	bool& outBlockaded)
 {
+	outPartners.clear();
 	outBlockaded = false;
-	if (!star || GetTradeConfig().incomeMultiplier <= 0.01f) return nullptr;
+	if (!star || GetTradeConfig().incomeMultiplier <= 0.01f) return;
+
 	EnsurePersistenceLoaded();
+	if (IsStarBlockaded(star)) {
+		outBlockaded = true;
+	}
+
+	auto addUniquePartner = [&](cEmpire* emp) {
+		if (!emp || emp->GetEmpireID() == star->mEmpireID) return;
+		cEmpire* owner = StarManager.GetEmpire(star->mEmpireID);
+		if (owner && RelationshipManager.IsAtWar(owner, emp)) return;
+		for (cEmpire* existing : outPartners) {
+			if (existing == emp) return;
+		}
+		outPartners.push_back(emp);
+	};
 
 	cEmpire* starOwner = StarManager.GetEmpire(star->mEmpireID);
 	cEmpire* playerEmp = GetPlayerEmpire();
 
+	// 1. Все ванильные синие линии Spore в обе стороны (Игрок <-> НПС)
 	if (starOwner && playerEmp) {
 		if (starOwner != playerEmp) {
-			if (!RelationshipManager.IsAtWar(playerEmp, starOwner) &&
-			    StarManager.mTradeRouteManager.HasTradeRoute(star->GetID(), playerEmp->GetEmpireID())) {
-				outBlockaded = IsStarBlockaded(star);
-				return playerEmp;
+			if (!RelationshipManager.IsAtWar(playerEmp, starOwner)) {
+				if (StarManager.mTradeRouteManager.HasTradeRoute(star->GetID(), playerEmp->GetEmpireID())) {
+					addUniquePartner(playerEmp);
+				} else {
+					for (const auto& pStar : playerEmp->mStars) {
+						if (pStar != nullptr &&
+						    StarManager.mTradeRouteManager.HasTradeRoute(pStar->GetID(), starOwner->GetEmpireID()) &&
+						    StarUtils::GetDistanceBetweenStars(star, pStar.get()) <= 25.0f) {
+							if (IsStarBlockaded(pStar.get())) outBlockaded = true;
+							addUniquePartner(playerEmp);
+							break;
+						}
+					}
+				}
 			}
 		} else {
 			eastl::vector<cStarRecordPtr> nearStars;
@@ -501,18 +530,21 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 			StarManager.FindStars(star->mPosition, trFilter, nearStars);
 
 			for (const auto& nStar : nearStars) {
-				if (nStar != nullptr && nStar->mEmpireID != 0 && nStar->mEmpireID != star->mEmpireID &&
-				    StarManager.mTradeRouteManager.HasTradeRoute(star->GetID(), nStar->mEmpireID)) {
-					cEmpire* partnerEmp = StarManager.GetEmpire(nStar->mEmpireID);
-					if (partnerEmp && !RelationshipManager.IsAtWar(playerEmp, partnerEmp)) {
-						outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(nStar.get());
-						return partnerEmp;
+				if (nStar == nullptr || nStar->mEmpireID == 0 || nStar->mEmpireID == star->mEmpireID) continue;
+				cEmpire* partnerEmp = StarManager.GetEmpire(nStar->mEmpireID);
+				if (!partnerEmp || RelationshipManager.IsAtWar(playerEmp, partnerEmp)) continue;
+
+				if (StarManager.mTradeRouteManager.HasTradeRoute(star->GetID(), nStar->mEmpireID) ||
+				    StarManager.mTradeRouteManager.HasTradeRoute(nStar->GetID(), star->mEmpireID)) {
+					if (!IsStarBlockaded(nStar.get())) {
+						addUniquePartner(partnerEmp);
 					}
 				}
 			}
 		}
 	}
 
+	// 2. Все маршруты ИИ <-> ИИ и ИИ <-> Игрок из нашей торговой сети
 	uint32_t targetStarId = star->GetID().internalValue;
 	for (const auto& route : galacticTradeRoutes) {
 		if (route.starIdA != targetStarId && route.starIdB != targetStarId) continue;
@@ -520,13 +552,19 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 		cStarRecord* otherStar = StarManager.GetStarRecord(StarID(otherStarId));
 		if (!otherStar || otherStar->mEmpireID == 0) continue;
 
-		outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(otherStar);
-		if (otherStar->mEmpireID != star->mEmpireID) {
-			return StarManager.GetEmpire(otherStar->mEmpireID);
+		if (otherStar->mEmpireID != star->mEmpireID && !IsStarBlockaded(otherStar)) {
+			addUniquePartner(StarManager.GetEmpire(otherStar->mEmpireID));
 		}
 	}
-	return nullptr;
 }
+
+Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cStarRecord* star, bool& outBlockaded)
+{
+	eastl::vector<Simulator::cEmpire*> partners;
+	GetStarActiveTradePartners(star, partners, outBlockaded);
+	return partners.empty() ? nullptr : partners.front();
+}
+
 
 bool cSpaceCombatMetrics::StarHasAnyActiveTradeRoute(Simulator::cStarRecord* star, bool& outBlockaded)
 {
