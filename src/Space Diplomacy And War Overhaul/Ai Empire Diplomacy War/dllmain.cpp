@@ -60,6 +60,25 @@ static void ClearScaledOrbitalShips()
 	sScaledOrbitalShips.clear();
 }
 
+static void StartLoopingShipAura(cGameDataUFO* ufo, float scaleMult, IVisualEffectPtr& outFx, bool isBossDreadnought)
+{
+	outFx = nullptr;
+	if (!ufo) return;
+
+	// Список настоящих бесконечных (looping) эффектов свечения из ресурсов Spore
+	const uint32_t bossCandidates[]   = { id("spc_antimatter_trail"), id("spc_proton_missile_trail"), id("spc_rare_glow"), 0x03F4D1A2 };
+	const uint32_t convoyCandidates[] = { id("spc_rare_glow"), id("spc_spice_geyser_glow"), id("spc_energy_mega_trail"), id("spc_shield_recharge") };
+
+	const uint32_t* list = isBossDreadnought ? bossCandidates : convoyCandidates;
+	for (int i = 0; i < 4; ++i) {
+		if (EffectsManager.CreateVisualEffect(list[i], 0, outFx) && outFx != nullptr) {
+			outFx->SetSourceTransform(Transform().SetOffset(ufo->GetPosition()).SetScale(scaleMult * 0.85f));
+			outFx->Start();
+			break;
+		}
+	}
+}
+
 static void RegisterScaledOrbitalShip(cGameDataUFO* ufo, float scaleMult, uint32_t primaryFxId, uint32_t fallbackFxId = 0)
 {
 	if (!ufo) return;
@@ -67,49 +86,73 @@ static void RegisterScaledOrbitalShip(cGameDataUFO* ufo, float scaleMult, uint32
 	vis.targetScale = scaleMult;
 	ufo->SetScale(scaleMult);
 
-	if (primaryFxId != 0) {
-		if (!EffectsManager.CreateVisualEffect(primaryFxId, 0, vis.auraFx) || vis.auraFx == nullptr) {
-			if (fallbackFxId != 0) {
-				EffectsManager.CreateVisualEffect(fallbackFxId, 0, vis.auraFx);
-			}
-		}
-		if (vis.auraFx != nullptr) {
-			vis.auraFx->SetSourceTransform(Transform().SetOffset(ufo->GetPosition()).SetScale(scaleMult * 0.55f));
-			vis.auraFx->Start();
-		}
-	}
+	bool isBoss = (scaleMult >= 1.85f);
+	StartLoopingShipAura(ufo, scaleMult, vis.auraFx, isBoss);
 	sScaledOrbitalShips[ufo] = vis;
 }
 
-static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, float defaultVal)
+// Настоящая стратегия симулятора: держит 3D-масштаб модели и ауру строго внутри тика планеты!
+class cOrbitalVisualsStrategy : public Simulator::cStrategy
 {
-	float val = defaultVal;
-	PropertyListPtr propList;
-	if (PropManager.GetPropertyList(id(propName), 0x02ae0c7e, propList) && propList != nullptr) {
-		App::Property::GetFloat(propList.get(), propID, val);
-	}
-	return val;
-}
+public:
+	static const uint32_t NOUN_ID = id("SpaceWarfareOverhaul::cOrbitalVisualsStrategy");
 
-static float ReadWarfareConfigFloat(uint32_t propID, float defaultVal)
-{
-	PropertyListPtr configKeys;
-	if (PropManager.GetPropertyList(id("ConfigurationKeys"), id("SdoConfig"), configKeys) && configKeys != nullptr) {
-		ResourceKey warfareKey;
-		if (App::Property::GetKey(configKeys.get(), 0x0FCF340F, warfareKey)) {
-			PropertyListPtr warfareProp;
-			if (PropManager.GetPropertyList(warfareKey.instanceID, warfareKey.groupID, warfareProp) && warfareProp != nullptr) {
-				float val = defaultVal;
-				if (App::Property::GetFloat(warfareProp.get(), propID, val)) {
-					return val;
-				}
+	int AddRef() override { return cStrategy::AddRef(); }
+	int Release() override { return cStrategy::Release(); }
+	void Initialize() override {}
+	void Dispose() override { ClearScaledOrbitalShips(); }
+	const char* GetName() const override { return "cOrbitalVisualsStrategy"; }
+	bool Write(Simulator::ISerializerStream*) override { return true; }
+	bool Read(Simulator::ISerializerStream*) override { return true; }
+	bool WriteToXML(Simulator::XmlSerializer*) override { return true; }
+
+	void Update(int deltaTime, int deltaGameTime) override
+	{
+		if (!IsSpaceGame() || GetCurrentContext() != SpaceContext::Planet) {
+			if (!sScaledOrbitalShips.empty()) {
+				ClearScaledOrbitalShips();
+			}
+			return;
+		}
+
+		if (sScaledOrbitalShips.empty()) return;
+
+		eastl::set<cGameDataUFO*> liveUfos;
+		for (const auto& ufo : GetData<cGameDataUFO>()) {
+			if (ufo != nullptr && ufo->mHealthPoints > 0.0f) {
+				liveUfos.insert(ufo.get());
 			}
 		}
-	}
-	return defaultVal;
-}
 
-// Слушатель: 1) удерживает крупный размер и свечение караванов/флагманов каждый кадр, 2) обрабатывает грабеж пряности при сбитии
+		for (auto it = sScaledOrbitalShips.begin(); it != sScaledOrbitalShips.end(); ) {
+			cGameDataUFO* ship = it->first;
+			if (liveUfos.find(ship) == liveUfos.end()) {
+				if (it->second.auraFx != nullptr) {
+					it->second.auraFx->Stop(0);
+				}
+				it = sScaledOrbitalShips.erase(it);
+				continue;
+			}
+
+			float sc = it->second.targetScale;
+			ship->SetScale(sc);
+			// Принудительно обновляем масштаб самой графической 3D-модели в GraphicsWorld!
+			if (ship->mpModel != nullptr) {
+				Transform tr = ship->mpModel->GetTransform();
+				tr.SetScale(sc);
+				ship->mpModel->SetTransform(tr);
+			}
+
+			if (it->second.auraFx != nullptr) {
+				it->second.auraFx->SetSourceTransform(
+					Transform().SetOffset(ship->GetPosition()).SetScale(sc * 0.85f));
+			}
+			++it;
+		}
+	}
+};
+
+// Слушатель грабежа пряности при сбитии каравана
 class cTradeConvoyLootListener : public App::IMessageListener, public DefaultRefCounted
 {
 public:
@@ -118,43 +161,6 @@ public:
 
 	bool HandleMessage(uint32_t messageID, void* msg) override
 	{
-		if (messageID == App::kMsgAppUpdate) {
-			if (!IsSpaceGame() || GetCurrentContext() != SpaceContext::Planet) {
-				if (!sScaledOrbitalShips.empty()) {
-					ClearScaledOrbitalShips();
-				}
-				return false;
-			}
-
-			if (!sScaledOrbitalShips.empty()) {
-				eastl::set<cGameDataUFO*> liveUfos;
-				for (const auto& ufo : GetData<cGameDataUFO>()) {
-					if (ufo != nullptr && ufo->mHealthPoints > 0.0f) {
-						liveUfos.insert(ufo.get());
-					}
-				}
-
-				for (auto it = sScaledOrbitalShips.begin(); it != sScaledOrbitalShips.end(); ) {
-					cGameDataUFO* ship = it->first;
-					if (liveUfos.find(ship) == liveUfos.end()) {
-						if (it->second.auraFx != nullptr) {
-							it->second.auraFx->Stop(0);
-						}
-						it = sScaledOrbitalShips.erase(it);
-						continue;
-					}
-
-					ship->SetScale(it->second.targetScale);
-					if (it->second.auraFx != nullptr) {
-						it->second.auraFx->SetSourceTransform(
-							Transform().SetOffset(ship->GetPosition()).SetScale(it->second.targetScale * 0.55f));
-					}
-					++it;
-				}
-			}
-			return false;
-		}
-
 		if (!IsSpaceGame() || messageID != SimulatorMessages::kMsgCombatantKilled || !msg) return false;
 
 		CombatantKilledMessage* killMsg = static_cast<CombatantKilledMessage*>(msg);
@@ -209,6 +215,7 @@ public:
 
 static intrusive_ptr<cTradeConvoyLootListener> sConvoyLootListener;
 
+
 void Initialize()
 {
 	cSimulatorSystem::Get()->AddStrategy(new cCompositionRoot(), cCompositionRoot::NOUN_ID);
@@ -228,9 +235,10 @@ void Initialize()
 	ClassManager.AddFactory(new cDefeatedEnemyTogetherEventFactory());
 	ClassManager.AddFactory(new cPreparingForWarEventFactory());
 
+	cSimulatorSystem::Get()->AddStrategy(new cOrbitalVisualsStrategy(), cOrbitalVisualsStrategy::NOUN_ID);
+
 	sConvoyLootListener = new cTradeConvoyLootListener();
 	MessageManager.AddListener(sConvoyLootListener.get(), SimulatorMessages::kMsgCombatantKilled);
-	MessageManager.AddListener(sConvoyLootListener.get(), App::kMsgAppUpdate);
 }
 
 void Dispose()
@@ -238,10 +246,10 @@ void Dispose()
 	ClearScaledOrbitalShips();
 	if (sConvoyLootListener != nullptr) {
 		MessageManager.RemoveListener(sConvoyLootListener.get(), SimulatorMessages::kMsgCombatantKilled);
-		MessageManager.RemoveListener(sConvoyLootListener.get(), App::kMsgAppUpdate);
 		sConvoyLootListener = nullptr;
 	}
 }
+
 
 member_detour(ShouldSpawnRaiderUFO__detour, cRaidEvent, bool())
 {
