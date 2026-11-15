@@ -259,14 +259,22 @@ int cSpaceCombatMetrics::GetActiveTradeRoutesBetweenEmpires(Simulator::cEmpire* 
 	uint32_t id2 = emp2->GetEmpireID();
 	int count = 0;
 
-	for (const auto& st1 : emp1->mStars) {
-		if (!st1) continue;
-		for (const auto& st2 : emp2->mStars) {
-			if (st2 && StarManager.HasTradeRoute(st1->GetID(), st2->GetID())) {
-				count++;
+	if (!RelationshipManager.IsAtWar(emp1, emp2) &&
+	    (RelationshipManager.IsAllied(emp1, emp2) || RelationshipManager.GetRelationshipValue(emp1, emp2) >= 50.0f)) {
+		for (const auto& st1 : emp1->mStars) {
+			if (!st1) continue;
+			bool linked = false;
+			for (const auto& st2 : emp2->mStars) {
+				if (st2 && StarUtils::GetDistanceBetweenStars(st1.get(), st2.get()) <= 15.0f) {
+					count++;
+					linked = true;
+					break;
+				}
 			}
+			if (linked) break;
 		}
 	}
+
 
 
 	for (const auto& route : galacticTradeRoutes) {
@@ -479,22 +487,25 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 
 	EnsurePersistenceLoaded();
 
-	// 1. Проверяем настоящие ванильные торговые пути Spore для ЭТОЙ звезды (StarManager.HasTradeRoute)
+	// 1. Проверяем прямые приграничные торговые/союзные линии игрока (в радиусе ванильного торгового пути 15 пк)
 	cEmpire* starOwner = StarManager.GetEmpire(star->mEmpireID);
 	cEmpire* playerEmp = GetPlayerEmpire();
-	if (starOwner && playerEmp) {
+	if (starOwner && playerEmp && !RelationshipManager.IsAtWar(playerEmp, starOwner)) {
 		if (starOwner != playerEmp) {
-			for (const auto& pStar : playerEmp->mStars) {
-				if (pStar && StarManager.HasTradeRoute(star->GetID(), pStar->GetID())) {
-					outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(pStar.get());
-					return playerEmp;
+			if (RelationshipManager.IsAllied(playerEmp, starOwner) ||
+			    RelationshipManager.GetRelationshipValue(playerEmp, starOwner) >= 40.0f) {
+				for (const auto& pStar : playerEmp->mStars) {
+					if (pStar && StarUtils::GetDistanceBetweenStars(star, pStar.get()) <= 15.0f) {
+						outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(pStar.get());
+						return playerEmp;
+					}
 				}
 			}
 		} else {
 			for (const auto& allyPtr : playerEmp->mAllies) {
-				if (!allyPtr) continue;
+				if (!allyPtr || RelationshipManager.IsAtWar(playerEmp, allyPtr.get())) continue;
 				for (const auto& aStar : allyPtr->mStars) {
-					if (aStar && StarManager.HasTradeRoute(star->GetID(), aStar->GetID())) {
+					if (aStar && StarUtils::GetDistanceBetweenStars(star, aStar.get()) <= 15.0f) {
 						outBlockaded = IsStarBlockaded(star) || IsStarBlockaded(aStar.get());
 						return allyPtr.get();
 					}
@@ -502,7 +513,6 @@ Simulator::cEmpire* cSpaceCombatMetrics::GetStarActiveTradePartner(Simulator::cS
 			}
 		}
 	}
-
 
 	// 2. Проверяем динамическую сеть маршрутов мода
 	uint32_t targetStarId = star->GetID().internalValue;
