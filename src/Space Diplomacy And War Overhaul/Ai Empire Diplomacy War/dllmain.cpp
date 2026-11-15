@@ -618,7 +618,7 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 		}
 
 		if (ownerEmpire == GetPlayerEmpire()) {
-			if (ufoType == UfoType::Defender) {
+			if (ufoType == UfoType::Defender || ufoType == UfoType::Tourist) {
 				return ufo;
 			}
 			if (gadgetMult > 0.01f && ufoType != UfoType::Bomber) {
@@ -748,30 +748,43 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 					}
 				}
 
-				// Б) Гостевая флотилия внешнего торгового партнера (включая ванильные синие линии Spore!)
-				bool partnerBlockaded = false;
-				cEmpire* tradePartner = root->spaceCombatMetrics->GetStarActiveTradePartner(pRec->GetStarRecord(), partnerBlockaded);
-				if (tradePartner && !partnerBlockaded && !RelationshipManager.IsAtWar(tradePartner, planetEmpire)) {
-					int partnerCount = 0;
-					float partnerScale = 1.0f, partnerHpMult = 1.0f;
-					root->spaceCombatMetrics->CalculateDynamicConvoySpecs(pRec, tradePartner, partnerCount, partnerScale, partnerHpMult);
+				// Б) Мульти-имперские гостевые караваны ВСЕХ торговых партнеров этой звезды (и твои корабли у НПС, и разные расы на хабе!)
+				bool hubBlockaded = false;
+				eastl::vector<cEmpire*> tradePartners;
+				root->spaceCombatMetrics->GetStarActiveTradePartners(pRec->GetStarRecord(), tradePartners, hubBlockaded);
 
-					int* pPartnerPolID = &tradePartner->mPoliticalID;
-					ResourceKey* pPartnerKey = &tradePartner->mUFOKey;
-					for (int c = 0; c < partnerCount; ++c) {
-						cGameDataUFO* freighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
-							cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
-							Args(UfoType::Defender, pPartnerPolID, pPartnerKey));
-						if (freighter) {
-							float cargoHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(tradePartner) * partnerHpMult;
-							freighter->mHealthPoints = cargoHP;
-							freighter->mMaxHealthPoints = cargoHP;
-							freighter->SetScale(freighter->GetScale() * partnerScale);
-							sActiveTradeFreighters.insert(freighter);
+				if (!hubBlockaded && !tradePartners.empty()) {
+					int numPartners = static_cast<int>(tradePartners.size());
+					for (cEmpire* tradePartner : tradePartners) {
+						if (!tradePartner || RelationshipManager.IsAtWar(tradePartner, planetEmpire)) continue;
+
+						int partnerCount = 0;
+						float partnerScale = 1.0f, partnerHpMult = 1.0f;
+						root->spaceCombatMetrics->CalculateDynamicConvoySpecs(pRec, tradePartner, partnerCount, partnerScale, partnerHpMult);
+
+						if (numPartners > 1) {
+							partnerCount = max(1, (partnerCount + numPartners - 1) / numPartners);
+						}
+
+						int* pPartnerPolID = &tradePartner->mPoliticalID;
+						ResourceKey* pPartnerKey = &tradePartner->mUFOKey;
+						UfoType guestUfoType = (tradePartner == GetPlayerEmpire()) ? UfoType::Tourist : UfoType::Defender;
+
+						for (int c = 0; c < partnerCount; ++c) {
+							cGameDataUFO* freighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+								cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+								Args(guestUfoType, pPartnerPolID, pPartnerKey));
+							if (freighter) {
+								float cargoHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(tradePartner) * partnerHpMult;
+								freighter->mHealthPoints = cargoHP;
+								freighter->mMaxHealthPoints = cargoHP;
+								freighter->SetScale(freighter->GetScale() * partnerScale);
+								sActiveTradeFreighters.insert(freighter);
+							}
 						}
 					}
 				}
-			}
+
 
 
 			// 1. Дипломатический Крейсер Посольства ИИ на планете ИГРОКА
