@@ -128,13 +128,12 @@ public:
 			}
 
 			float visualScale = it->second.targetScale * 1.45f;
-			Transform spatialTr = ship->GetTransform();
-			spatialTr.SetScale(visualScale);
-			ship->SetTransform(spatialTr);
 			ship->SetScale(visualScale);
 
-			if (ship->mpModel != nullptr && ship->mpModel->GetModelWorld() != nullptr) {
-				ship->mpModel->SetTransform(spatialTr);
+			if (ship->mpModel != nullptr) {
+				Transform modelTr = ship->mpModel->GetTransform();
+				modelTr.SetScale(visualScale);
+				ship->mpModel->SetTransform(modelTr);
 			}
 
 			if (it->second.auraFx != nullptr) {
