@@ -66,17 +66,10 @@ static void StartLoopingShipAura(cGameDataUFO* ufo, float scaleMult, IVisualEffe
 	outFx = nullptr;
 	if (!ufo) return;
 
-	const uint32_t bossCandidates[]   = { id("spc_antimatter_trail"), id("spc_proton_missile_trail"), id("spc_rare_glow"), 0x03F4D1A2 };
-	const uint32_t convoyCandidates[] = { id("spc_energy_mega_trail"), id("spc_rare_glow"), id("spc_spice_geyser_glow"), id("spc_shield_recharge") };
-
-	const uint32_t* list = isBossDreadnought ? bossCandidates : convoyCandidates;
-	float auraScale = isBossDreadnought ? 0.30f : 0.16f; // Аккуратный ореол по размеру корабля вместо огромного купола!
-	for (int i = 0; i < 4; ++i) {
-		if (EffectsManager.CreateVisualEffect(list[i], 0, outFx) && outFx != nullptr) {
-			outFx->SetSourceTransform(Transform().SetOffset(ufo->GetPosition()).SetScale(auraScale));
-			outFx->Start();
-			break;
-		}
+	float auraScale = isBossDreadnought ? 0.38f : 0.22f;
+	if (EffectsManager.CreateVisualEffect(id("spc_rare_glow"), 0, outFx) && outFx != nullptr) {
+		outFx->SetSourceTransform(Transform().SetOffset(ufo->GetPosition()).SetScale(auraScale));
+		outFx->Start();
 	}
 }
 
@@ -92,7 +85,6 @@ static void RegisterScaledOrbitalShip(cGameDataUFO* ufo, float scaleMult, uint32
 	sScaledOrbitalShips[ufo] = vis;
 }
 
-// 1. Очистка мертвых кораблей в тике симулятора
 class cOrbitalVisualsStrategy : public Simulator::cStrategy
 {
 public:
@@ -126,17 +118,35 @@ public:
 		}
 
 		for (auto it = sScaledOrbitalShips.begin(); it != sScaledOrbitalShips.end(); ) {
-			if (liveUfos.find(it->first) == liveUfos.end()) {
+			cGameDataUFO* ship = it->first;
+			if (liveUfos.find(ship) == liveUfos.end()) {
 				if (it->second.auraFx != nullptr) {
 					it->second.auraFx->Stop(0);
 				}
 				it = sScaledOrbitalShips.erase(it);
 				continue;
 			}
+
+			float visualScale = it->second.targetScale * 1.45f;
+			Transform spatialTr = ship->GetTransform();
+			spatialTr.SetScale(visualScale);
+			ship->SetTransform(spatialTr);
+			ship->SetScale(visualScale);
+
+			if (ship->mpModel != nullptr && ship->mpModel->GetModelWorld() != nullptr) {
+				ship->mpModel->SetTransform(spatialTr);
+			}
+
+			if (it->second.auraFx != nullptr) {
+				float auraSc = (it->second.targetScale >= 1.85f) ? 0.38f : 0.22f;
+				it->second.auraFx->SetSourceTransform(
+					Transform().SetOffset(ship->GetPosition()).SetScale(auraSc));
+			}
 			++it;
 		}
 	}
 };
+
 
 static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, float defaultVal)
 {
@@ -884,19 +894,19 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 							partnerCount = max(1, (partnerCount + numPartners - 1) / numPartners);
 						}
 
-						int* pPartnerPolID = &tradePartner->mPoliticalID;
+						int* pSpawnPolID = (tradePartner == GetPlayerEmpire()) ? &planetEmpire->mPoliticalID : &tradePartner->mPoliticalID;
 						ResourceKey* pPartnerKey = &tradePartner->mUFOKey;
-						UfoType guestUfoType = (tradePartner == GetPlayerEmpire()) ? static_cast<UfoType>(3) : UfoType::Defender;
 
 						for (int c = 0; c < partnerCount; ++c) {
 							cGameDataUFO* freighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
 								cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
-								Args(guestUfoType, pPartnerPolID, pPartnerKey));
+								Args(UfoType::Defender, pSpawnPolID, pPartnerKey));
 							if (freighter) {
+								freighter->mPoliticalID = tradePartner->GetEmpireID();
 								float cargoHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(tradePartner) * partnerHpMult;
 								freighter->mHealthPoints = cargoHP;
 								freighter->mMaxHealthPoints = cargoHP;
-								RegisterScaledOrbitalShip(freighter, partnerScale, id("spc_shield_hit"), id("spc_collect_rare"));
+								RegisterScaledOrbitalShip(freighter, partnerScale, id("spc_rare_glow"));
 								sActiveTradeFreighters.insert(freighter);
 							}
 						}
@@ -1051,7 +1061,6 @@ void AttachDetours()
 	SpawnUFO__detour::attach(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)));
 	GenerateNpcPlanetDefenders__detour::attach(Address(ModAPI::ChooseAddress(0x00ffa340, 0x00ff96b0)));
 	NpcToolOnHit__detour::attach(GetAddress(cToolStrategy, OnHit));
-	CameraUpdatePreRender__detour::attach(GetAddress(App::cCameraManager, Update));
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule,
