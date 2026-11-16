@@ -48,7 +48,6 @@ static bool sIsGeneratingInitialPlanetGarrison = false;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcPlanetUprisingCooldowns;
 static eastl::map<uint32_t, uint32_t> sZealotEmpireSchismEndTime;
 static int sGalaxyRevolutionTickAccumMs = 0;
-static eastl::map<uint32_t, uint32_t> sZealotEmpireSchismEndTime;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcHangarJamCooldowns;
 static eastl::set<cGameDataUFO*> sActiveTradeFreighters;
 static eastl::map<cGameDataUFO*, SpecialOrbitalShipVisual> sScaledOrbitalShips;
@@ -87,6 +86,9 @@ static void RegisterScaledOrbitalShip(cGameDataUFO* ufo, float scaleMult, uint32
 	StartLoopingShipAura(ufo, scaleMult, vis.auraFx, isBoss);
 	sScaledOrbitalShips[ufo] = vis;
 }
+
+static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, float defaultVal);
+static int GetDynamicMaxTreasuryForEmpire(cEmpire* empire, cCompositionRoot* root);
 
 static void ProcessBackgroundGalacticRevolutions(int deltaGameTime)
 {
@@ -353,37 +355,6 @@ static float ReadWarfareConfigFloat(uint32_t propID, float defaultVal)
 	}
 	return defaultVal;
 }
-
-// Масштабирование 3D-меша сразу после тика камеры (перед рендером, с обновлением GPU через UpdateModel!)
-member_detour(CameraUpdatePreRender__detour, App::cCameraManager, void(int))
-{
-	void detoured(int deltaTime)
-	{
-		original_function(this, deltaTime);
-
-		if (sScaledOrbitalShips.empty() || !IsSpaceGame() || GetCurrentContext() != SpaceContext::Planet) {
-			return;
-		}
-
-		for (auto& kv : sScaledOrbitalShips) {
-			cGameDataUFO* ship = kv.first;
-			if (!ship || ship->mHealthPoints <= 0.0f || ship->mpModel == nullptr) continue;
-
-			float visualScale = kv.second.targetScale * 1.35f;
-			Transform tr = ship->mpModel->GetTransform();
-			tr.SetScale(visualScale);
-			ship->mpModel->SetTransform(tr);
-			
-			if (kv.second.auraFx != nullptr) {
-				float auraSc = (kv.second.targetScale >= 1.85f) ? 0.28f : 0.14f;
-				kv.second.auraFx->SetSourceTransform(
-					Transform().SetOffset(ship->GetPosition()).SetScale(auraSc));
-			}
-		}
-	}
-};
-
-
 
 // Слушатель грабежа пряности при сбитии каравана
 class cTradeConvoyLootListener : public App::IMessageListener, public DefaultRefCounted
@@ -778,13 +749,6 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 		heavyLosses = (targetDefenders <= 2) ? (aliveDefenders == 0) : (aliveDefenders < (targetDefenders / 2));
 	}
 
-	if (zealotSchismActive) rebellionChance = 0.55f;
-	else if (baseArch == Archetypes::kArchetypeWarrior) rebellionChance = 0.50f;
-	else if (baseArch == Archetypes::kArchetypeTrader) rebellionChance = 0.40f;
-	else if ((baseArch == Archetypes::kArchetypeEcologist || baseArch == Archetypes::kArchetypeScientist) && severeCityStrike) {
-		rebellionChance = 0.42f;
-	}
-	
 	if (!zealotSchismActive) {
 		if (peacetimeCheck) {
 			if (!isBankrupt && !severeCityStrike) return 0.0f;
@@ -795,9 +759,12 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 	}
 
 	float rebellionChance = 0.25f;
-	if (zealotSchismActive) rebellionChance = 0.55f; // Цепной каскад религиозного раскола по всем планетам секты!
+	if (zealotSchismActive) rebellionChance = 0.55f;
 	else if (baseArch == Archetypes::kArchetypeWarrior) rebellionChance = 0.50f;
 	else if (baseArch == Archetypes::kArchetypeTrader) rebellionChance = 0.40f;
+	else if ((baseArch == Archetypes::kArchetypeEcologist || baseArch == Archetypes::kArchetypeScientist) && severeCityStrike) {
+		rebellionChance = 0.42f;
+	}
 	else if (baseArch == Archetypes::kArchetypeScientist || baseArch == Archetypes::kArchetypeEcologist) rebellionChance = 0.15f;
 	else if (baseArch == Archetypes::kArchetypeDiplomat || baseArch == Archetypes::kArchetypeBard || baseArch == Archetypes::kArchetypeShaman) rebellionChance = 0.20f;
 
