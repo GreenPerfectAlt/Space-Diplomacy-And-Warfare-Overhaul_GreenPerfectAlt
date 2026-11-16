@@ -337,8 +337,8 @@ int cSpaceCombatMetrics::ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire*
 	Simulator::Archetypes baseArch = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
 	int maxAllowedRoutes = cfg.maxRoutesPerEmpire;
 	if (baseArch == Archetypes::kArchetypeTrader) maxAllowedRoutes += 3;
-	else if (baseArch == Archetypes::kArchetypeBard) maxAllowedRoutes += 2;
-	else if (baseArch == Archetypes::kArchetypeDiplomat || baseArch == Archetypes::kArchetypeScientist) maxAllowedRoutes += 1;
+	else if (baseArch == Archetypes::kArchetypeBard || baseArch == Archetypes::kArchetypeDiplomat) maxAllowedRoutes += 2;
+	else if (baseArch == Archetypes::kArchetypeScientist) maxAllowedRoutes += 1;
 	else if (baseArch == Archetypes::kArchetypeZealot || baseArch == Archetypes::kArchetypeGrob) maxAllowedRoutes = max(1, maxAllowedRoutes / 2);
 
 	int currentRoutes = GetEmpireTotalTradeRoutes(empire);
@@ -347,7 +347,8 @@ int cSpaceCombatMetrics::ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire*
 	if (currentRoutes < maxAllowedRoutes && !empire->mStars.empty() && baseArch != Archetypes::kArchetypeGrob) {
 		cStarRecord* originStar = empire->mStars[Math::rand(static_cast<int>(empire->mStars.size()))].get();
 		if (originStar && !IsStarBlockaded(originStar)) {
-			float searchRadius = max(tradeRange * 1.35f, 15.0f);
+			float rangeMult = (baseArch == Archetypes::kArchetypeScientist) ? 1.80f : 1.35f;
+			float searchRadius = max(tradeRange * rangeMult, 15.0f);
 			eastl::vector<cStarRecordPtr> nearbyStars;
 			StarRequestFilter filter;
 			filter.RemoveStarType(Simulator::StarType::None);
@@ -458,6 +459,7 @@ int cSpaceCombatMetrics::ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire*
 
 	float archTradeBonus = 1.0f;
 	if (baseArch == Archetypes::kArchetypeTrader) archTradeBonus = 1.45f;
+	else if (baseArch == Archetypes::kArchetypeScientist) archTradeBonus = 1.20f;
 	else if (baseArch == Archetypes::kArchetypeBard) archTradeBonus = 1.15f;
 
 	return max(static_cast<int>(round(totalTradeProfit * archTradeBonus * cfg.incomeMultiplier)), 0);
@@ -489,9 +491,11 @@ int cSpaceCombatMetrics::BreakTradeRoutesOnWar(Simulator::cEmpire* emp1, Simulat
 
 	if (brokenCount > 0) {
 		SdoTradeConfigValues cfg = GetTradeConfig();
-		int shockPenalty = static_cast<int>(round(static_cast<float>(brokenCount * baseUnitCost * 3) * cfg.warDeterrenceStrength));
-		emp1->mEmpireMoney = max(emp1->mEmpireMoney - shockPenalty, 0);
-		emp2->mEmpireMoney = max(emp2->mEmpireMoney - shockPenalty, 0);
+		int baseShock = static_cast<int>(round(static_cast<float>(brokenCount * baseUnitCost * 3) * cfg.warDeterrenceStrength));
+		float mult1 = (ArchetypeUtils::GetBaseArchetype(emp1->mArchetype) == Archetypes::kArchetypeDiplomat) ? 2.0f : 1.0f;
+		float mult2 = (ArchetypeUtils::GetBaseArchetype(emp2->mArchetype) == Archetypes::kArchetypeDiplomat) ? 2.0f : 1.0f;
+		emp1->mEmpireMoney = max(emp1->mEmpireMoney - static_cast<int>(round(baseShock * mult1)), 0);
+		emp2->mEmpireMoney = max(emp2->mEmpireMoney - static_cast<int>(round(baseShock * mult2)), 0);
 	}
 	return brokenCount;
 }
@@ -670,7 +674,12 @@ void cSpaceCombatMetrics::CalculateDynamicConvoySpecs(
 		archFleetBonus = 1.25f;
 	}
 
+	cEmpire* hostEmpire = planet->GetStarRecord() ? StarManager.GetEmpire(planet->GetStarRecord()->mEmpireID) : nullptr;
+	bool isDiplomatHostEscort = (hostEmpire != nullptr && hostEmpire != convoyEmpire &&
+		ArchetypeUtils::GetBaseArchetype(hostEmpire->mArchetype) == Archetypes::kArchetypeDiplomat);
+
 	int rawCount = static_cast<int>(round(tierVolume * cityBonus * depotBonus * archFleetBonus * cfg.convoyDensity));
+	if (isDiplomatHostEscort) rawCount += 1;
 	outShipCount = min(max(rawCount, 1), max(cfg.maxRoutesPerEmpire, 6));
 
 	float spiceRatio = planet->GetStarRecord() ? GetNormalizedStarSpiceRatio(planet->GetStarRecord()) : 1.0f;
@@ -683,7 +692,8 @@ void cSpaceCombatMetrics::CalculateDynamicConvoySpecs(
 	outScaleMult = min(max(outScaleMult, 1.05f), 2.20f);
 
 	float knightEscortArmor = isPlayerKnight ? 1.15f : 1.0f;
-	outHpMult = outScaleMult * (gadgets.hasUberTurret ? 1.25f : 1.10f) * knightEscortArmor;
+	float diplomatFederationShield = isDiplomatHostEscort ? 1.35f : 1.0f;
+	outHpMult = outScaleMult * (gadgets.hasUberTurret ? 1.25f : 1.10f) * knightEscortArmor * diplomatFederationShield;
 }
 
 void cSpaceCombatMetrics::BootstrapInitialTradeNetwork()
@@ -1076,9 +1086,9 @@ float cSpaceCombatMetrics::GetDefenderHealthByEmpire(Simulator::cEmpire* empire)
 
 	switch (baseArchetype) {
 	case Archetypes::kArchetypeWarrior:
-	case Archetypes::kArchetypeZealot:
 	case Archetypes::kArchetypeGrob:
-		return baseHealth * (1.0f + (0.25f * levelFactor));
+		return baseHealth * (1.0f + (0.30f * levelFactor));
+	case Archetypes::kArchetypeZealot:
 	case Archetypes::kArchetypeScientist:
 		return baseHealth * (1.0f + (0.10f * levelFactor));
 	case Archetypes::kArchetypeBard:
@@ -1092,7 +1102,11 @@ float cSpaceCombatMetrics::GetDefenderHealthByEmpire(Simulator::cEmpire* empire)
 float cSpaceCombatMetrics::GetTurretHealthByEmpire(Simulator::cEmpire* empire)
 {
 	if (empire == nullptr) return GetTurretHealthByLevel(0);
-	return GetTurretHealthByLevel(empire->GetWeaponryLevel());
+	float baseTurretHP = GetTurretHealthByLevel(empire->GetWeaponryLevel());
+	if (ArchetypeUtils::GetBaseArchetype(empire->mArchetype) == Archetypes::kArchetypeScientist) {
+		return baseTurretHP * 1.35f; // Высокотехнологичные ИИ-турели Ученых
+	}
+	return baseTurretHP;
 }
 
 int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
@@ -1168,7 +1182,7 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 			archetypeMultiplier = 1.6f;
 			break;
 		case Archetypes::kArchetypeEcologist:
-			archetypeMultiplier = 1.2f;
+			archetypeMultiplier = (planet->mType == PlanetType::T3 || PlanetUtils::Homeworld(planet)) ? 2.0f : 1.1f;
 			break;
 		default:
 			archetypeMultiplier = 0.8f;
