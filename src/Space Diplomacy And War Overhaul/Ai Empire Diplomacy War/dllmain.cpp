@@ -1294,24 +1294,6 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 
 				// Гигантский Орбитальный Флагман-Страж (Дредноут), если ИИ построил Убербашню
 				if (npcGadgets.hasUberTurret && gadgetMult > 0.01f) {
-
-					// Астральный Страж «Возвратного билета» Шаманов (телепортируется со Столицы на защиту любой колонии!)
-					float nexusXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC13, 0.30f);
-					if (ArchetypeUtils::GetBaseArchetype(planetEmpire->mArchetype) == Archetypes::kArchetypeShaman &&
-					    nexusXml > 0.01f && !PlanetUtils::Homeworld(pRec) && !IsShamanAstralNexusSevered(planetEmpire, root)) {
-						int* pPolID = &planetEmpire->mPoliticalID;
-						ResourceKey* pKey = &planetEmpire->mUFOKey;
-						cGameDataUFO* astralWarden = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
-							cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
-							Args(UfoType::Defender, pPolID, pKey));
-						if (astralWarden) {
-							float networkHarmony = 1.0f + min(std::sqrt(static_cast<float>(planetEmpire->mStars.size())) * 0.12f, 0.75f);
-							float wardenHP = root->spaceCombatMetrics->GetBomberHealthByEmpire(planetEmpire) * (1.85f * networkHarmony * (nexusXml / 0.30f));
-							astralWarden->mHealthPoints = wardenHP;
-							astralWarden->mMaxHealthPoints = wardenHP;
-							RegisterScaledOrbitalShip(astralWarden, 1.70f, id("spc_rare_glow"));
-						}
-					}		
 					int* pPolID = &planetEmpire->mPoliticalID;
 					ResourceKey* pKey = &planetEmpire->mUFOKey;
 					cGameDataUFO* dreadnought = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
@@ -1325,6 +1307,23 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 					}
 				}
 
+				// Астральный Страж «Возвратного билета» Шаманов (телепортируется со Столицы на защиту любой колонии!)
+				float nexusXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC13, 0.30f);
+				if (ArchetypeUtils::GetBaseArchetype(planetEmpire->mArchetype) == Archetypes::kArchetypeShaman &&
+				    nexusXml > 0.01f && !PlanetUtils::Homeworld(pRec) && !IsShamanAstralNexusSevered(planetEmpire, root)) {
+					int* pPolID = &planetEmpire->mPoliticalID;
+					ResourceKey* pKey = &planetEmpire->mUFOKey;
+					cGameDataUFO* astralWarden = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+						cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+						Args(UfoType::Defender, pPolID, pKey));
+					if (astralWarden) {
+						float networkHarmony = 1.0f + min(std::sqrt(static_cast<float>(planetEmpire->mStars.size())) * 0.12f, 0.75f);
+						float wardenHP = root->spaceCombatMetrics->GetBomberHealthByEmpire(planetEmpire) * (1.85f * networkHarmony * (nexusXml / 0.30f));
+						astralWarden->mHealthPoints = wardenHP;
+						astralWarden->mMaxHealthPoints = wardenHP;
+						RegisterScaledOrbitalShip(astralWarden, 1.70f, id("spc_rare_glow"));
+					}
+				}
 				TryTriggerNpcPeacetimeColonialUprising(pRec, planetEmpire, root);
 			}
 		}
