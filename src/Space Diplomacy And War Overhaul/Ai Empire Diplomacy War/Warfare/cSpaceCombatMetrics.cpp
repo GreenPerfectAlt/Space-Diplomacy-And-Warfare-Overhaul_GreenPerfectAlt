@@ -1012,9 +1012,9 @@ float cSpaceCombatMetrics::GetBomberHealthByEmpire(Simulator::cEmpire* empire)
 
 	switch (baseArchetype) {
 	case Archetypes::kArchetypeWarrior:
-	case Archetypes::kArchetypeZealot:
 	case Archetypes::kArchetypeGrob:
-		return baseHealth * (1.0f + (0.25f * levelFactor));
+		return baseHealth * (1.0f + (0.30f * levelFactor));
+	case Archetypes::kArchetypeZealot:
 	case Archetypes::kArchetypeScientist:
 		return baseHealth * (1.0f + (0.10f * levelFactor));
 	case Archetypes::kArchetypeBard:
@@ -1034,11 +1034,11 @@ float cSpaceCombatMetrics::GetFighterHealthByEmpire(Simulator::cEmpire* empire)
 
 	switch (baseArchetype) {
 	case Archetypes::kArchetypeWarrior:
-	case Archetypes::kArchetypeZealot:
 	case Archetypes::kArchetypeGrob:
-		return baseHealth * (1.0f + (0.20f * levelFactor));
+		return baseHealth * (1.0f + (0.25f * levelFactor));
+	case Archetypes::kArchetypeZealot:
 	case Archetypes::kArchetypeScientist:
-		return baseHealth * (1.0f + (0.10f * levelFactor));
+		return baseHealth * (1.0f + (0.08f * levelFactor));
 	case Archetypes::kArchetypeBard:
 	case Archetypes::kArchetypeDiplomat:
 		return baseHealth * (1.0f - (0.15f * (1.0f - levelFactor * 0.5f)));
