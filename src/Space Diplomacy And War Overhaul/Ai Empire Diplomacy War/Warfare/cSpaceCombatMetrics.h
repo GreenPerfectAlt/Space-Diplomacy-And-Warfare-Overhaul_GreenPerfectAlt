@@ -84,6 +84,9 @@ public:
 	bool HasTradeRouteBetweenStars(uint32_t starA, uint32_t starB) const;
 	int GetEmpireTotalTradeRoutes(Simulator::cEmpire* empire);
 	int GetActiveTradeRoutesBetweenEmpires(Simulator::cEmpire* emp1, Simulator::cEmpire* emp2, bool includeBlockaded = false);
+	// Индекс промышленного загрязнения империи и бонус/штраф симпатии Экологов к игроку
+	float GetEmpirePollutionIndex(Simulator::cEmpire* targetEmpire);
+	int GetEcologistEcoAffinityModifier(Simulator::cEmpire* empire1, Simulator::cEmpire* empire2);
 	int GetTradeAffinityBonus(Simulator::cEmpire* emp1, Simulator::cEmpire* emp2);
 	float GetTradeWarDeterrenceMultiplier(Simulator::cEmpire* attacker, Simulator::cEmpire* target);
 	int ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire* empire, int baseUnitCost, float tradeRange);
