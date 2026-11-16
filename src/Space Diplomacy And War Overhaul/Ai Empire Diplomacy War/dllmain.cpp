@@ -209,7 +209,7 @@ static void ProcessBackgroundGalacticRevolutions(int deltaGameTime)
 			rebelStar->mEmpireID = 0;
 
 			// Рождаем новую фракцию прямо на отколовшейся звезде через нативный StarManager.EmpireForStar!
-			cEmpire* rebelEmpire = StarManager.EmpireForStar(rebelStar);
+			cEmpire* rebelEmpire = StarManager.GetEmpireForStar(rebelStar);
 			if (rebelEmpire != nullptr && rebelEmpire != targetEmp) {
 				// 1. Тот же биологический вид и та же моделька корабля, что у родины!
 				if (targetEmp->GetSpeciesProfile() != nullptr) {
@@ -611,7 +611,7 @@ static float GetNpcPlanetaryCityUnrestFactor(cPlanetRecord* planet)
 	float unhappyScore = min(avgUnhappy * 0.22f, 0.85f);
 
 	cEmpire* planetOwner = (planet->GetStarRecord() != nullptr) ? StarManager.GetEmpire(planet->GetStarRecord()->mEmpireID) : nullptr;
-	Simulator::Archetypes ownerArch = planetOwner ? ArchetypeUtils::GetBaseArchetype(planetOwner->mArchetype) : Archetypes::kArchetypeWanderer;
+	Simulator::Archetypes ownerArch = planetOwner ? ArchetypeUtils::GetBaseArchetype(planetOwner->mArchetype) : Archetypes::kArchetypePlayerWanderer;
 
 	bool underWarOrBlockade = false;
 	if (planetOwner) {
