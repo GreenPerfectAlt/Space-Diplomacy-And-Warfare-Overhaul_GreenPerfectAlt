@@ -347,7 +347,14 @@ int cSpaceCombatMetrics::ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire*
 	if (currentRoutes < maxAllowedRoutes && !empire->mStars.empty() && baseArch != Archetypes::kArchetypeGrob) {
 		cStarRecord* originStar = empire->mStars[Math::rand(static_cast<int>(empire->mStars.size()))].get();
 		if (originStar && !IsStarBlockaded(originStar)) {
-			float rangeMult = (baseArch == Archetypes::kArchetypeScientist) ? 1.80f : 1.35f;
+			float rangeMult = 1.35f;
+			if (baseArch == Archetypes::kArchetypeScientist) {
+				rangeMult = 1.80f;
+			} else if (baseArch == Archetypes::kArchetypeShaman) {
+				cStarRecord* homeSt = EmpireUtils::GetHomeStar(empire);
+				bool homeSevered = (!homeSt || homeSt->mEmpireID != empire->GetEmpireID() || IsStarBlockaded(homeSt));
+				rangeMult = homeSevered ? 0.90f : 1.65f; // Return Ticket сворачивает пространство, пока цел Исток!
+			}
 			float searchRadius = max(tradeRange * rangeMult, 15.0f);
 			eastl::vector<cStarRecordPtr> nearbyStars;
 			StarRequestFilter filter;
