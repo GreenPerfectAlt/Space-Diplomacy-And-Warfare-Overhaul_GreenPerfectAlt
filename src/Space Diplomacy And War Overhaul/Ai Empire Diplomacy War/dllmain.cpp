@@ -51,6 +51,7 @@ static int sGalaxyRevolutionTickAccumMs = 0;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcHangarJamCooldowns;
 static eastl::map<cPlanetRecordPtr, uint32_t> sShamanEcoShockEndTime;
 static int sShamanReincarnationsThisBattle = 0;
+static bool sShamanWardenSummonedThisVisit = false;
 static bool sIsSpawningReincarnatedSpirit = false;
 static eastl::set<cGameDataUFO*> sActiveTradeFreighters;
 static eastl::map<cGameDataUFO*, SpecialOrbitalShipVisual> sScaledOrbitalShips;
@@ -268,6 +269,8 @@ static void ProcessBackgroundGalacticRevolutions(int deltaGameTime)
 	}
 }
 
+static void TrySummonShamanAstralWarden(cPlanetRecord* pRec, cEmpire* planetEmpire, cCompositionRoot* root);
+
 class cOrbitalVisualsStrategy : public Simulator::cStrategy
 {
 public:
@@ -292,6 +295,14 @@ public:
 			return;
 		}
 
+		if (!sShamanWardenSummonedThisVisit && GetActivePlanetRecord() && GetActivePlanetRecord()->GetStarRecord()) {
+			cEmpire* hostEmp = StarManager.GetEmpire(GetActivePlanetRecord()->GetStarRecord()->mEmpireID);
+			cCompositionRoot* root = cCompositionRoot::Get();
+			if (hostEmp && root) {
+				TrySummonShamanAstralWarden(GetActivePlanetRecord(), hostEmp, root);
+			}
+		}
+		
 		if (sScaledOrbitalShips.empty()) return;
 
 		eastl::set<cGameDataUFO*> liveUfos;
@@ -339,6 +350,45 @@ static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, 
 		App::Property::GetFloat(propList.get(), propID, val);
 	}
 	return val;
+}
+
+static bool IsNpcPlanetInCombat(cPlanetRecord* planet, cEmpire* ownerEmpire);
+
+static void TrySummonShamanAstralWarden(cPlanetRecord* pRec, cEmpire* planetEmpire, cCompositionRoot* root)
+{
+	if (sShamanWardenSummonedThisVisit || !pRec || !planetEmpire || !root || !root->spaceCombatMetrics) return;
+	if (planetEmpire == GetPlayerEmpire() || PlanetUtils::Homeworld(pRec)) return;
+	if (ArchetypeUtils::GetBaseArchetype(planetEmpire->mArchetype) != Archetypes::kArchetypeShaman) return;
+
+	float nexusXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC13, 0.30f);
+	if (nexusXml <= 0.01f || IsShamanAstralNexusSevered(planetEmpire, root)) return;
+
+	// СТРОГО ПО БОЕВОЙ ТРЕВОГЕ: война с игроком, вражеский флот/пираты в небе ИЛИ активная осада на планете!
+	bool underAttack = IsNpcPlanetInCombat(pRec, planetEmpire) || MissionManager.ThereIsEventInPlanet(pRec);
+	if (!underAttack) return;
+
+	sShamanWardenSummonedThisVisit = true;
+
+	int* pPolID = &planetEmpire->mPoliticalID;
+	ResourceKey* pKey = &planetEmpire->mUFOKey;
+	cGameDataUFO* astralWarden = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+		cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+		Args(UfoType::Defender, pPolID, pKey));
+
+	if (astralWarden) {
+		float networkHarmony = 1.0f + min(std::sqrt(static_cast<float>(planetEmpire->mStars.size())) * 0.12f, 0.75f);
+		float wardenHP = root->spaceCombatMetrics->GetBomberHealthByEmpire(planetEmpire) * (1.85f * networkHarmony * (nexusXml / 0.30f));
+		astralWarden->mHealthPoints = wardenHP;
+		astralWarden->mMaxHealthPoints = wardenHP;
+		RegisterScaledOrbitalShip(astralWarden, 1.70f, id("spc_rare_glow"));
+
+		Audio::PlayAudio(id("spc_wormhole_enter"));
+		IVisualEffectPtr warpFx;
+		if (EffectsManager.CreateVisualEffect(id("spc_collect_rare"), 0, warpFx) && warpFx != nullptr) {
+			warpFx->SetSourceTransform(Transform().SetOffset(astralWarden->GetPosition()).SetScale(1.4f));
+			warpFx->Start();
+		}
+	}
 }
 
 // O(1) проверка «Возвратного билета»: разорвана ли астральная связь Шамана с его Родной Столицей?
@@ -1148,6 +1198,7 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 
 		sIsGeneratingInitialPlanetGarrison = true;
 		sShamanReincarnationsThisBattle = 0;
+		sShamanWardenSummonedThisVisit = false;
 		sActiveTradeFreighters.clear();
 		ClearScaledOrbitalShips();
 		original_function(this, planet);
@@ -1291,7 +1342,6 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 						}
 					}
 				}
-
 				// Гигантский Орбитальный Флагман-Страж (Дредноут), если ИИ построил Убербашню
 				if (npcGadgets.hasUberTurret && gadgetMult > 0.01f) {
 					int* pPolID = &planetEmpire->mPoliticalID;
@@ -1307,23 +1357,7 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 					}
 				}
 
-				// Астральный Страж «Возвратного билета» Шаманов (телепортируется со Столицы на защиту любой колонии!)
-				float nexusXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC13, 0.30f);
-				if (ArchetypeUtils::GetBaseArchetype(planetEmpire->mArchetype) == Archetypes::kArchetypeShaman &&
-				    nexusXml > 0.01f && !PlanetUtils::Homeworld(pRec) && !IsShamanAstralNexusSevered(planetEmpire, root)) {
-					int* pPolID = &planetEmpire->mPoliticalID;
-					ResourceKey* pKey = &planetEmpire->mUFOKey;
-					cGameDataUFO* astralWarden = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
-						cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
-						Args(UfoType::Defender, pPolID, pKey));
-					if (astralWarden) {
-						float networkHarmony = 1.0f + min(std::sqrt(static_cast<float>(planetEmpire->mStars.size())) * 0.12f, 0.75f);
-						float wardenHP = root->spaceCombatMetrics->GetBomberHealthByEmpire(planetEmpire) * (1.85f * networkHarmony * (nexusXml / 0.30f));
-						astralWarden->mHealthPoints = wardenHP;
-						astralWarden->mMaxHealthPoints = wardenHP;
-						RegisterScaledOrbitalShip(astralWarden, 1.70f, id("spc_rare_glow"));
-					}
-				}
+				TrySummonShamanAstralWarden(pRec, planetEmpire, root);
 				TryTriggerNpcPeacetimeColonialUprising(pRec, planetEmpire, root);
 			}
 		}
