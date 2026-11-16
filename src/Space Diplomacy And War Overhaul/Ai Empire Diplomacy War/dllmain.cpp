@@ -47,6 +47,8 @@ struct SpecialOrbitalShipVisual {
 static bool sIsGeneratingInitialPlanetGarrison = false;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcPlanetUprisingCooldowns;
 static eastl::map<uint32_t, uint32_t> sZealotEmpireSchismEndTime;
+static int sGalaxyRevolutionTickAccumMs = 0;
+static eastl::map<uint32_t, uint32_t> sZealotEmpireSchismEndTime;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcHangarJamCooldowns;
 static eastl::set<cGameDataUFO*> sActiveTradeFreighters;
 static eastl::map<cGameDataUFO*, SpecialOrbitalShipVisual> sScaledOrbitalShips;
@@ -86,6 +88,139 @@ static void RegisterScaledOrbitalShip(cGameDataUFO* ufo, float scaleMult, uint32
 	sScaledOrbitalShips[ufo] = vis;
 }
 
+static void ProcessBackgroundGalacticRevolutions(int deltaGameTime)
+{
+	if (!IsSpaceGame() || deltaGameTime <= 0) return;
+
+	float rebMult = ReadExternalConfigFloat(u"RebellionConfig", 0x07A1BC02, 1.0f);
+	float cdSec   = ReadExternalConfigFloat(u"RebellionConfig", 0x07A1BC10, 180.0f);
+	int minStarsForSecession = max(static_cast<int>(round(ReadExternalConfigFloat(u"RebellionConfig", 0x07A1BC11, 6.0f))), 4);
+
+	if (rebMult <= 0.01f || cdSec <= 1.0f) return;
+
+	sGalaxyRevolutionTickAccumMs += deltaGameTime;
+	int intervalMs = static_cast<int>(round(cdSec * 1000.0f));
+	if (sGalaxyRevolutionTickAccumMs < intervalMs) return;
+	sGalaxyRevolutionTickAccumMs = 0;
+
+	cCompositionRoot* root = cCompositionRoot::Get();
+	cEmpire* playerEmp = GetPlayerEmpire();
+	if (!root || !root->spaceCombatMetrics || !playerEmp || playerEmp->mStars.empty()) return;
+
+	// Ищем кризисные империи в окрестностях сектора игрока (до 45 парсеков — зона видимости и уведомлений!)
+	StarRequestFilter filter;
+	filter.RemoveStarType(Simulator::StarType::None);
+	filter.RemoveStarType(Simulator::StarType::GalacticCore);
+	filter.RemoveStarType(Simulator::StarType::ProtoPlanetary);
+	filter.RemoveStarType(Simulator::StarType::BlackHole);
+	filter.techLevels = 0;
+	filter.AddTechLevel(Simulator::TechLevel::Empire);
+	filter.minDistance = 0.5f;
+	filter.maxDistance = 45.0f;
+
+	eastl::vector<cStarRecordPtr> sectorStars;
+	StarManager.FindStars(playerEmp->mStars.front()->mPosition, filter, sectorStars);
+
+	eastl::vector<cEmpire*> candidates;
+	for (const auto& st : sectorStars) {
+		if (!st || st->mEmpireID == 0) continue;
+		cEmpire* emp = StarManager.GetEmpire(st->mEmpireID);
+		if (!emp || emp == playerEmp) continue;
+		if (static_cast<int>(emp->mStars.size()) < minStarsForSecession) continue;
+		if (root->simulationValidator && !root->simulationValidator->ValidEmpire(emp, true)) continue;
+
+		Simulator::Archetypes bArch = ArchetypeUtils::GetBaseArchetype(emp->mArchetype);
+		if (bArch == Archetypes::kArchetypeGrob) continue;
+
+		bool exists = false;
+		for (cEmpire* c : candidates) { if (c == emp) { exists = true; break; } }
+		if (!exists) candidates.push_back(emp);
+	}
+
+	if (candidates.empty()) return;
+
+	uint32_t nowTime = (root->persistenceState != nullptr) ? root->persistenceState->GetCurrentSpaceTime() : 0;
+
+	for (cEmpire* targetEmp : candidates) {
+		Simulator::Archetypes arch = ArchetypeUtils::GetBaseArchetype(targetEmp->mArchetype);
+		int maxCap = GetDynamicMaxTreasuryForEmpire(targetEmp, root);
+		int crisisThreshold = static_cast<int>(round(static_cast<float>(maxCap) * 0.15f));
+		bool bankrupt = (targetEmp->mEmpireMoney > 0 && targetEmp->mEmpireMoney < crisisThreshold);
+
+		bool inZealotSchism = false;
+		if (arch == Archetypes::kArchetypeZealot && nowTime > 0) {
+			auto itS = sZealotEmpireSchismEndTime.find(targetEmp->GetEmpireID());
+			if (itS != sZealotEmpireSchismEndTime.end() && nowTime < itS->second) {
+				inZealotSchism = true;
+			}
+		}
+
+		if (arch == Archetypes::kArchetypeZealot && !inZealotSchism) continue;
+		if (!bankrupt && !inZealotSchism && targetEmp->mEnemies.empty()) continue;
+
+		float revChance = 0.18f * rebMult;
+		if (inZealotSchism) revChance = 0.50f * rebMult;
+		else if (arch == Archetypes::kArchetypeWarrior) revChance = 0.35f * rebMult;
+		else if (arch == Archetypes::kArchetypeTrader && bankrupt) revChance = 0.30f * rebMult;
+
+		if (Math::randf() >= min(revChance, 0.75f)) continue;
+
+		// Выбираем самую далекую от столицы незащищенную колонию без Усилителя преданности
+		cStarRecord* homeStar = EmpireUtils::GetHomeStar(targetEmp);
+		cPlanetRecord* rebelPlanet = nullptr;
+		float maxDist = -1.0f;
+
+		for (const auto& st : targetEmp->mStars) {
+			if (!st || st.get() == homeStar || root->spaceCombatMetrics->IsStarBlockaded(st.get())) continue;
+			float d = homeStar ? StarUtils::GetDistanceBetweenStars(homeStar, st.get()) : 10.0f;
+			for (const auto& pl : st->GetPlanetRecords()) {
+				if (!pl || pl->GetTechLevel() != TechLevel::Empire || PlanetUtils::Homeworld(pl.get())) continue;
+				if (root->spaceCombatMetrics->GetPlanetGadgetInfo(pl.get()).hasLoyaltyBooster) continue;
+				if (d > maxDist) {
+					maxDist = d;
+					rebelPlanet = pl.get();
+				}
+			}
+		}
+
+		if (!rebelPlanet || !rebelPlanet->GetStarRecord()) continue;
+
+		// 1. Запускаем настоящее ванильное событие налета/мятежа (шлет игроку мигающее SOS-уведомление от союзников и соседей!)
+		cMission* raidMission = MissionManager.CreateMission(id("RaidPlunderEvent"), rebelPlanet, targetEmp);
+		if (raidMission != nullptr) {
+			raidMission->AcceptMission();
+		}
+
+		// 2. Если империя в глубоком банкротстве или Расколе — шанс реального откола окраинной системы на карте галактики!
+		float secessionChance = (bankrupt || inZealotSchism) ? (0.30f * rebMult) : 0.0f;
+		if (static_cast<int>(targetEmp->mStars.size()) >= minStarsForSecession && Math::randf() < secessionChance) {
+			cStarRecord* rebelStar = rebelPlanet->GetStarRecord();
+			// Ищем ближайшую молодую/соседнюю империю, к которой переметнутся сепаратисты (либо врага метрополии)
+			eastl::vector<cStarRecordPtr> nearRebel;
+			StarRequestFilter secFilter = filter;
+			secFilter.maxDistance = 18.0f;
+			StarManager.FindStars(rebelStar->mPosition, secFilter, nearRebel);
+
+			cEmpire* newMaster = nullptr;
+			for (const auto& ns : nearRebel) {
+				if (!ns || ns->mEmpireID == 0 || ns->mEmpireID == targetEmp->GetEmpireID()) continue;
+				cEmpire* cand = StarManager.GetEmpire(ns->mEmpireID);
+				if (cand && cand != playerEmp && ArchetypeUtils::GetBaseArchetype(cand->mArchetype) != Archetypes::kArchetypeGrob) {
+					newMaster = cand;
+					if (RelationshipManager.IsAtWar(targetEmp, cand)) break;
+				}
+			}
+
+			if (newMaster != nullptr && root->warfareSystem != nullptr) {
+				StarManager.RequireEmpireForStar(rebelStar, newMaster);
+				RelationshipManager.DeclareWar(targetEmp, newMaster);
+			}
+		}
+
+		break; // Не более 1 крупной галактической революции за цикл, чтобы не спамить экран уведомлениями!
+	}
+}
+
 class cOrbitalVisualsStrategy : public Simulator::cStrategy
 {
 public:
@@ -102,6 +237,7 @@ public:
 
 	void Update(int deltaTime, int deltaGameTime) override
 	{
+		ProcessBackgroundGalacticRevolutions(deltaGameTime);
 		if (!IsSpaceGame() || GetCurrentContext() != SpaceContext::Planet) {
 			if (!sScaledOrbitalShips.empty()) {
 				ClearScaledOrbitalShips();
@@ -461,10 +597,31 @@ static float GetNpcPlanetaryCityUnrestFactor(cPlanetRecord* planet)
 	float avgUnhappy = static_cast<float>(unhappyCitizens) / static_cast<float>(totalCities);
 	float unhappyScore = min(avgUnhappy * 0.22f, 0.85f);
 
+	cEmpire* planetOwner = (planet->GetStarRecord() != nullptr) ? StarManager.GetEmpire(planet->GetStarRecord()->mEmpireID) : nullptr;
+	Simulator::Archetypes ownerArch = planetOwner ? ArchetypeUtils::GetBaseArchetype(planetOwner->mArchetype) : Archetypes::kArchetypeWanderer;
+
+	bool underWarOrBlockade = false;
+	if (planetOwner) {
+		if (!planetOwner->mEnemies.empty()) underWarOrBlockade = true;
+		if (root && root->spaceCombatMetrics && planet->GetStarRecord() && root->spaceCombatMetrics->IsStarBlockaded(planet->GetStarRecord())) {
+			underWarOrBlockade = true;
+		}
+	}
+
 	float factoryStrain = 0.0f;
-	if (totalFactories > totalEntertainment * 2 + totalCities) {
-		int excessFactories = totalFactories - (totalEntertainment * 2 + totalCities);
-		factoryStrain = min(static_cast<float>(excessFactories) * 0.06f, 0.45f);
+	int allowedFactories = (ownerArch == Archetypes::kArchetypeEcologist && underWarOrBlockade)
+		? (totalEntertainment + totalCities)
+		: (totalEntertainment * 2 + totalCities);
+
+	if (totalFactories > allowedFactories) {
+		int excessFactories = totalFactories - allowedFactories;
+		float archFactorySensitivity = 1.0f;
+		// В мирное время не душим ИИ за автозастройку Maxis, а при войне/блокаде Экологи (2.5x) и Ученые (2.0x) бастуют жестко!
+		if (underWarOrBlockade) {
+			if (ownerArch == Archetypes::kArchetypeEcologist) archFactorySensitivity = 2.5f;
+			else if (ownerArch == Archetypes::kArchetypeScientist) archFactorySensitivity = 2.0f;
+		}
+		factoryStrain = min(static_cast<float>(excessFactories) * 0.06f * archFactorySensitivity, 0.75f);
 	}
 
 	float rawUnrest = min(unhappyScore + factoryStrain, 1.0f) * unrestMult;
@@ -545,7 +702,9 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 			(isBankrupt && cityUnrest >= 0.25f);
 
 		if (dogmaShatteredHere && nowSpaceTime > 0) {
-			uint32_t schismDuration = static_cast<uint32_t>(round(360000.0f * rebellionMultiplier));
+			float xmlSchismSec = ReadExternalConfigFloat(u"RebellionConfig", 0x07A1BC0F, 240.0f);
+			float sizeScale = 1.0f + min(static_cast<float>(ownerEmpire->mStars.size()) * 0.04f, 0.80f);
+			uint32_t schismDuration = static_cast<uint32_t>(round(xmlSchismSec * 1000.0f * sizeScale));
 			sZealotEmpireSchismEndTime[empID] = nowSpaceTime + schismDuration;
 			zealotSchismActive = true;
 		} else if (nowSpaceTime > 0) {
@@ -577,6 +736,13 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 		heavyLosses = (targetDefenders <= 2) ? (aliveDefenders == 0) : (aliveDefenders < (targetDefenders / 2));
 	}
 
+	if (zealotSchismActive) rebellionChance = 0.55f;
+	else if (baseArch == Archetypes::kArchetypeWarrior) rebellionChance = 0.50f;
+	else if (baseArch == Archetypes::kArchetypeTrader) rebellionChance = 0.40f;
+	else if ((baseArch == Archetypes::kArchetypeEcologist || baseArch == Archetypes::kArchetypeScientist) && severeCityStrike) {
+		rebellionChance = 0.42f;
+	}
+	
 	if (!zealotSchismActive) {
 		if (peacetimeCheck) {
 			if (!isBankrupt && !severeCityStrike) return 0.0f;
@@ -713,7 +879,8 @@ static void TryTriggerNpcPeacetimeColonialUprising(cPlanetRecord* planet, cEmpir
 
 	if (Math::randf() >= chance) {
 		if (currentSpaceTime > 0) {
-			sNpcPlanetUprisingCooldowns[cPlanetRecordPtr(planet)] = currentSpaceTime + 90000;
+			uint32_t baseCdMs = static_cast<uint32_t>(round(max(ReadExternalConfigFloat(u"RebellionConfig", 0x07A1BC10, 180.0f), 30.0f) * 500.0f));
+			sNpcPlanetUprisingCooldowns[cPlanetRecordPtr(planet)] = currentSpaceTime + baseCdMs;	
 		}
 		return;
 	}
@@ -742,7 +909,8 @@ static void TryTriggerNpcPeacetimeColonialUprising(cPlanetRecord* planet, cEmpir
 	}
 
 	if (currentSpaceTime > 0) {
-		sNpcPlanetUprisingCooldowns[cPlanetRecordPtr(planet)] = currentSpaceTime + 240000;
+		uint32_t fullCdMs = static_cast<uint32_t>(round(max(ReadExternalConfigFloat(u"RebellionConfig", 0x07A1BC10, 180.0f), 30.0f) * 1300.0f));
+		sNpcPlanetUprisingCooldowns[cPlanetRecordPtr(planet)] = currentSpaceTime + fullCdMs;
 	}
 }
 
@@ -812,12 +980,15 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 			customHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(ownerEmpire);
 			if (GetCurrentContext() == SpaceContext::Planet && GetActivePlanetRecord() != nullptr) {
 				SdoPlanetGadgetInfo gInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(GetActivePlanetRecord());
+				Simulator::Archetypes bArch = ArchetypeUtils::GetBaseArchetype(ownerEmpire->mArchetype);
 				if (gInfo.hasUberTurret) {
-					customHP *= (1.0f + 0.25f * gadgetMult);
+					float uberShieldBonus = (bArch == Archetypes::kArchetypeScientist) ? 0.40f : 0.25f;
+					customHP *= (1.0f + uberShieldBonus * gadgetMult);
 				}
 				if (gInfo.hasBioProtector) {
-					Simulator::Archetypes bArch = ArchetypeUtils::GetBaseArchetype(ownerEmpire->mArchetype);
-					if (bArch == Archetypes::kArchetypeEcologist || bArch == Archetypes::kArchetypeShaman || bArch == Archetypes::kArchetypeScientist) {
+					if (bArch == Archetypes::kArchetypeEcologist) {
+						customHP *= (1.0f + 0.30f * gadgetMult);
+					} else if (bArch == Archetypes::kArchetypeShaman) {
 						customHP *= (1.0f + 0.15f * gadgetMult);
 					}
 				}
