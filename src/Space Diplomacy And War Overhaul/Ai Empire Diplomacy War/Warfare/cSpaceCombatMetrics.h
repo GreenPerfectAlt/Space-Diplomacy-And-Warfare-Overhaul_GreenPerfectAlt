@@ -112,6 +112,7 @@ public:
 
 private:
 	void PruneInvalidTradeRoutes();
+	void BootstrapInitialTradeNetwork();
 
 	bool persistenceImported = false;
 	eastl::map<cPlanetRecordPtr, eastl::pair<int, int>> planetDefenseCache;
