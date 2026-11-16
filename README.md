@@ -1,145 +1,89 @@
-# Space Diplomacy and Warfare Overhaul
+# ⚔️ Space Diplomacy & Warfare Overhaul — Living 4X Galaxy, Trade & Revolutions
 
-## Overview
-This mod completely overhauls the original AI logic for diplomacy and warfare during the space stage. Empires no longer act randomly, instead make decisions based on their archetype, both when forming alliances and declaring wars. And, during wars, the AI now produces ships according to its economic capacity and selects planets to attack using a fully reworked algorithm. The result is a more dynamic galaxy, where political relationships evolve coherently and wars generate logical and coherent frontlines.
+**Platform:** Spore: Galactic Adventures (`v1.1.3+`)  
+**Requires:** Spore ModAPI Launcher Kit + UPE  
+**Required Companion & Config Hub:** [Defensive Ships in Player Colonies](https://github.com/GreenPerfectAlt/Defensive-Ships-In-Player-Colonies_GreenPerfectAlt)
 
-## Diplomacy
+**Space Diplomacy & Warfare Overhaul** transforms the Space Stage into a deep 4X grand strategy simulation. Building upon Sadicto's Diplomacy & Warfare foundation, this expanded fork introduces real **AI Empire Treasuries & Upkeep**, **Multi-Species 3D Trade Convoys & Plundering**, **10 Asymmetrical Philosophy Doctrines**, **Orbital Uber-Turret Dreadnoughts**, **The Great Zealot Schism**, and **Background Galactic Revolutions** that fracture bankrupt superpowers into brand-new breakaway republics!
 
-### Affinity System
-The new diplomacy is based on affinity, primarily determined by archetype compatibility.
+---
 
-- Compatible archetypes generate positive affinity and improve relations.
-- Incompatible archetypes produce negative affinity and increase the likelihood of war.
+## ⚠️ IMPORTANT: Two-Mod Ecosystem (Install Both!)
 
-**Archetype compatibilities:**
+This mod is **Part 2** of a unified two-mod Space Stage overhaul. **Install BOTH mods together** so all XML balance presets and cross-mod mechanics work seamlessly:
 
-- **Warriors:** Dislike all except other warriors.
-- **Zealots:** Hate almost everyone (especially shamans and scientists) and adore other zealots.
-- **Scientists:** Hate zealots and shamans, dislike ecologists and warriors, and like other scientists, traders, and bards.
-- **Traders:** Hate ecologists, dislike shamans, warriors, and zealots, and like other traders, scientists, and bards.
-- **Bards:** Dislike diplomats, zealots, and warriors, and like other bards, traders, and scientists.
-- **Ecologists:** Hate traders, dislike scientists, warriors, and zealots, like shamans and diplomats; adore other ecologists.
-- **Shamans:** Hate zealots and scientists, dislike warriors and traders, like diplomats, ecologists, and other shamans.
-- **Diplomats:** Hate warriors; dislike zealots and bards, like shamans and ecologists, adore other diplomats.
+1. 🛡️ **[Defensive Ships in Player Colonies (`v1.0.9+`)](https://github.com/GreenPerfectAlt/Defensive-Ships-In-Player-Colonies_GreenPerfectAlt)** *(Part 1 — Config Hub & Player Garrisons)*
+   * Powers **your** automated colony defense fleets, orbital shipyards, fleet upkeep, citizen strikes, and rebellions.
+   * Houses the **6-Module Interactive ModAPI Installer** (`FleetConfig`, `RebellionConfig`, `UpkeepConfig`, `UnrestConfig`, `GadgetConfig`, `TradeConfig`) that dynamically configures **this mod** with zero hardcoded multipliers or timers!
+2. ⚔️ **[Space Diplomacy & Warfare Overhaul (`v1.1.3+`)](https://github.com/GreenPerfectAlt/Space-Diplomacy-And-Warfare-Overhaul_GreenPerfectAlt)** *(Part 2 — This Mod)*
+   * Drives autonomous AI alliances, frontlines, treasuries, 3D trade spaceports, AI gadget construction, philosophy warfare, and galaxy-map secession wars.
 
-The player will get a permanent negative effect, *“your presence disturbs us,”* with incompatible archetypes, or a positive one, *“we think alike,”* with compatible archetypes.
+---
 
-**Other Sources of Affinity**
+## 🚀 New 4X Overhaul Systems (`v1.0.1` – `v1.1.3`)
 
-In addition to archetype compatibility, affinity is also influenced by:
+### 1. Galactic Trade Network, Multi-Species Spaceports & 3D Plundering
+* **Vanilla Blue-Line & AI Cluster Sync:** Hooks directly into Spore's native `mTradeRouteManager` alongside autonomous AI-to-AI trade routes. On save load, neighboring empires immediately establish regional trade routes based on spice rarity arbitrage and Affinity.
+* **Multi-Empire Spaceports & Two-Way Convoys:** Major hubs (**Homeworlds** and **T3** worlds) host guest cargo fleets from **all** active trade partners simultaneously! Your own Sporepedia ships visibly patrol foreign trade partners' cities, while allied freighters help defend your colonies against pirates and rebels.
+* **Dynamic Tanker Scaling:** Convoy ship counts and hull armor scale dynamically with planet T-Score, cached **Unlimited-Colony** city counts, **Spice Storage** depots (`1.35x`), and logarithmic spice value (`log2(spiceRatio)`), highlighted by glowing orbital auras (`spc_rare_glow`).
+* **1v1 Convoy Plundering & Blockades:**
+  * Active sieges **blockade** star systems—freezing trade income and raising city strike unrest (`+25%`).
+  * Declaring war shatters trade contracts and inflicts immediate **Financial Shock** on both treasuries.
+  * Destroying enemy domestic or partner cargo freighters in 3D combat **plunders Sporebucks** straight from the enemy's treasury into your wallet with native cash-register audio and rare-artifact visual bursts!
 
-- Having at least one common ally adds +1 to affinity.
-- Having at least one common enemy adds +2 to affinity.
-- Being at war with another empire's ally subtracts -1 from affinity.
-- A long-lasting peace adds +1 to affinity.
-- Long-lasting alliances add up to +2 to affinity.
-- Having defeated a common enemy temporarily adds +2 to affinity.
-- Having uplifted an empire with a monolith adds +2 to affinity.
+### 2. Real AI Empire Treasury, Upkeep & Autonomous Gadget Purchasing
+* **No Infinite AI Money:** AI empires earn taxes from spice production and trade routes (`mEmpireMoney`), pay periodic **Fleet Upkeep**, and fund bomber squadrons from real reserves.
+* **Boom vs. Bankruptcy:** Wealthy empires (`>=80%` treasury cap) field elite reinforced ships (**`1.20x` HP**) and purchase bonus invasion wings. Bankrupt empires (`<15%` cap) suffer supply collapse (**`0.75x` HP**), halted invasions, and high rebellion risk.
+* **Persistent AI Infrastructure (`cPersistenceState`):** Prosperous AI empires invest surplus funds into permanent **Spice Storage** depots, **Loyalty/Happiness Boosters**, **Bio-Protectors**, **Uber Turrets**, and foreign **Embassies**—all saved persistently across game sessions!
 
-Affinity bonuses from long-lasting alliances and long-lasting peace do not stack with each other, and the same is true for the common enemy and defeated common enemy bonuses.
+### 3. Background Galactic Revolutions, SOS Alerts & Breakaway Republics
+* **Live Galaxy-Map Uprisings:** Overextended superpowers (`6+` stars by default, configurable via XML) suffering bankruptcy or ideological collapse face real frontier revolutions in the background without requiring player visits.
+* **Native SOS Distress Signals:** Triggers genuine Spore emergency alerts (`RaidPlunderEvent`) in the top-left HUD when allied or neighboring colonies erupt into revolt—intervene for reputation or let them burn!
+* **Secession & Breakaway Republics:** If a bankrupt giant fails to contain a revolt on an unfortified frontier star (no **Loyalty Booster**), that star **secedes into a brand-new independent empire**! The breakaway republic retains its parent species and ship model (`mUFOKey`), adopts an opposing revolutionary philosophy, receives starting capital, and immediately fights a **War of Independence** against its former master! *(Small empires are 100% protected from collapse).*
 
-The comm tab shows your affinity with the empire.
+### 4. "The Great Schism" — Zealot Heresy Cascade
+* Normally, **Zealot** garrisons have **`0%` rebellion chance** thanks to blind fanaticism.
+* **Shattering the Dogma:** Planting a foreign **Embassy** on a Zealot world, starving their cities into **Factory Strikes** via blockade, or triggering **Raider Rally** panic shatters their religious immunity—igniting **The Great Schism** (`55%` rebellion rate) across **every star system** in that Zealot empire simultaneously!
 
-![AffinityTooltip](images/AffinityTooltip.png "Affinity Tooltip")
-*Affinity Interface*
+### 5. Orbital Dreadnoughts, Embassies & Ship Tools
+* **Uber-Turret Orbital Dreadnoughts:** AI worlds fortified with an **Uber Turret** deploy a massive **Boss Flagship (`3.5x` Bomber HP)** alongside `+14` planetary turrets and `+25%` garrison armor (`+40%` for Scientists).
+* **Diplomatic Cruisers & Espionage:** Allied AI empires open **Embassies** on your worlds, stationing an allied **Diplomatic Cruiser** in your orbit (`-50%` unrest) that turns hostile if war breaks out. Your own Embassies on NPC worlds boost enemy garrison defection by **`+25%`**.
+* **Active 3D Siege Tools:** **Static Cling / Soothing Song** jams NPC planetary hangars for `45s` (blocking defender respawns), while **Raider Rally** triggers `1.35x` orbital mutiny panic.
 
-The long alliance and long peace bonuses don't stack, which is why the long peace bonus appears greyed out in the image. The same happens with the common enemy and defeated common enemy bonuses.
+---
 
-### AI Alliances
-- AI empires only form alliances with other AI empires they have positive affinity with. 
-- If affinity drops to zero or becomes negative, the alliance can break.
-- If two allies go to war, the AI will stay allied with the one it has higher affinity for and break the alliance with the other, even if that other is the player. 
+## 🏛️ Complete Philosophy Asymmetry (All 10 Archetypes)
 
-### Player Alliances
-- Affinity affects player alliances:
-  - **Positive affinity:** the +100 relationship effect bonus *“We created an alliance”* is permanent.
-  - **Neutral affinity or negative affinity:** the bonus gradually decreases until it disappears.
-- Nearby empires with positive affinity, even if not allies, can improve their relations with the player in +25 increments up to +100.
+| Philosophy | Trade Network & Convoys | Combat & Garrison Doctrine | Signature Strength & Achilles' Heel |
+| :--- | :--- | :--- | :--- |
+| **Trader** | **`+3` Route Slots**, **`+45%` Trade Profit**, **`+35%` Convoy Ships**, trades with neutrals (`Affinity >= 0`). | `1.6x` Garrison size, `1.75x` Treasury Cap, `2.0x` War Deterrence. | **Strength:** Richest banks & Spice Depots.<br>**Weakness:** Mercenary fleets mutiny fast (`40%`) if bankrupted! |
+| **Diplomat** | **`+2` Route Slots**, `2.0x` War Deterrence, builds **Embassies** on player worlds. | Light hulls (`-20%` HP), small native garrison (`0.8x`). | **Federation Shield:** Guest partner convoys on Diplomat worlds gain **`+1` ship & `+35%` HP**!<br>**Weakness:** Suffers **`2.0x` Financial Shock** when war breaks trade. |
+| **Scientist** | **`1.8x` Hyper-Relay Trade Range**, `+1` Route Slot, **`+20%` Trade Profit**. | `+10%` Hull HP, `1.6x` Garrison, **`+35%` AI Turret HP**, **`+40%` Uber-Turret Shields**. | **Strength:** Long-range control relays (`1.8x` anti-rebel radius).<br>**Weakness:** **`2.0x` Factory Strike unrest** during wars/blockades! |
+| **Ecologist** | Prioritizes `T2/T3` terraformed hubs (`1.35x` weight), **`+25%` Convoy Ships** on `T3`/Capitals. | **`2.0x` Fortress Garrisons** on `T3`/Homeworlds (`1.1x` elsewhere), **`+30%` Bio-Protector HP**. | **Strength:** Living `T3` worlds are natural bastions.<br>**Weakness:** Despises wartime pollution (**`2.5x` Factory Strike unrest**)! |
+| **Bard** | **`+2` Route Slots**, **`+15%` Trade Profit**, **`+25%` Convoy Ships**, open borders (`Affinity >= 0`). | Lightest hulls (`-20%` HP), small garrison (`0.8x`), loyal frontiers (`0.65x` unrest). | **Strength:** Bustling multi-species spaceport capitals.<br>**Weakness:** Fragile, high-value convoys—prime targets for piracy & plundering! |
+| **Shaman** | **`+25%` Rare-Spice Profit** and **`1.25x` Crystal Armor scaling** on rare spice routes. | Standard hulls + **`+15%` Bio-Protector HP**, peaceful frontiers (`0.65x` unrest). | **Strength:** Turns purple/pink spice systems into rich, armored sanctuaries.<br>**Weakness:** Modest `0.8x` garrisons on common red/yellow worlds. |
+| **Warrior** | Prioritizes internal military supply lines (**`0.85x` internal route yield** vs `0.55x`). | **Elite Heavy Armor (`+30%` HP)** & massive **`2.5x` Garrisons**, ignores war deterrence (`0.35x`). | **Strength:** Flying tanks in 1v1 wars.<br>**Weakness:** Constant war spending drains banks, causing **`50%` frontier general mutinies**! |
+| **Zealot** | Closed sect (`50%` route slots), trades only with coreligionists & allies. | **Massive `2.5x` Kamikaze Swarms** with lighter **`+10%` Hulls**, ignores trade losses (`0.35x`). | **Strength:** **`0%` Mutiny Immunity** under intact dogma.<br>**Weakness:** Vulnerable to **The Great Schism (`55%` empire-wide heresy cascade)**! |
+| **Grox** | **Total Galactic Embargo** (`0` foreign routes), internal cyber-supply lines only. | **Maximum `+30%` Cyber-Armor**, `2.5x` Armadas, **`0%` Rebellions**. | Eternal machine war against all organic life; internal transports yield pure plunder. |
+| **Knight / Wanderer** *(Player)* | **Player Knight:** Deploys **Honor Escorts** on allied worlds (**`+20%` Convoy Ships & `+15%` Shield HP**). | **Knight:** `1.35x` Heavy Garrison Armor.<br>**Wanderer:** Balanced adaptable baseline. | Gives player-exclusive archetypes distinct presence across allied spaceports. |
 
-### AI Wars
-- Each archetype has an aggressiveness level:
-  - **Warriors and zealots:** very aggressive.
-  - **Scientists, traders, and bards:** intermediate.
-  - **Ecologists, diplomats, and shamans:** peaceful.
-- Aggressiveness increases with empire level, so even the most peaceful archetypes have a small chance of declaring war on neighbors with negative affinity once they reach level 5.
-- AI empires can declare war through two different mechanisms: joining an ally's war, or declaring a war on their own initiative.
-  - Joining an ally's war: If within range of an empire that is at war with an ally, the AI will automatically declare war on its ally's enemy, as long as it has lower affinity with the target than with the ally.
-  - War on its own initiative: If neighboring an empire with an affinity of zero or lower and a relationship below 30 (worse than blue face), the AI may decide to declare war, with the probability depending on the archetype's aggressiveness. In the player's case, they receive a notification informing them that the empire is preparing to declare war, which can be avoided by raising the relationship to 30 or higher.
+---
 
-![PreparingForWarNotification](images/PreparingForWarNotification.png "An empire preparing for war against the player")
-*An empire preparing for war against the player*
 
-### Player Wars
-- With this new system for declaring wars, AI empires will no longer demand tribute from the player.
+## 🤝 Core Diplomacy, Affinity & Cluster Warfare
 
-### Truces
-When the player takes an action that ends a war against an AI empire, a 40-minute truce is formed between that empire and the player. Depending on how peace was reached, the AI's allies or the player's allies may also sign truces.
-- If the player accepts an AI empire's peace request, a truce is signed between the player's alliance bloc and that empire.
-- If the player pays an AI empire to make peace, a truce is signed between the player's alliance bloc and the empire's alliance bloc.
+• Affinity System: Diplomacy revolves around philosophical compatibility, shared allies (+1), common enemies (+2), monolith uplifting (+2), active Trade Networks (+1 to +2), and long-standing alliances (+2).
+• Coherent Frontlines & Invasion Call: AI empires attack contiguous border stars rather than jumping randomly across space, sizing bomber fleets against real planetary defenses (including cached Unlimited-Colony cities and Uber Turrets!). Players can summon allied strike fleets via the dynamically priced Invasion Call tool.
+• 40-Minute Truces & War Warnings: Empires preparing war notify the player in advance (avoidable by raising relations above +30), and peace treaties enforce 40-minute bloc truces.
 
-The remaining truce duration can be seen in the affinity interface of the communications panel. If the player breaks the truce (by starting a war with the empire), all of the player's active truces will be cancelled.
+## 📥 Installation & Customization
 
-![AffinityTruce](images/AffinityTruce.png "Truce time")
-*The truce's remaining time, as shown in the affinity interface*
+1. Requires Spore: Galactic Adventures, Spore ModAPI Launcher Kit, and UPE.
+2. Download and install Defensive Ships in Player Colonies (v1.0.9+) first—select your preferred presets for Fleet Scale, Rebellions, Upkeep, Unrest, Gadgets, and Galactic Trade.
+3. Download the latest Space-Diplomacy-And-Warfare-Overhaul.sporemod from Releases and install it via Spore ModAPI Easy Installer (configure Active Radius, Bomber Rates, Notifications, etc.).
+4. Launch the game via Spore ModAPI Launcher! Fully save-game compatible (starting a new game is optional for initial Affinity modifiers).
 
-![BreakingTruceNotification](images/BreakingTruceNotification.png "Breaking truce notification")
-*Consequences of breaking a truce*
+📜 Credits
 
-### Notifications
-The player will receive notifications for:
-- War declarations
-- Peace declarations
-- Alliances
-- Broken alliances
-
-![DiplomacyNotifications](images/DiplomacyNotification.png "Diplomacy Notifications")
-*Diplomacy Notifications*
-
-### Galaxy View Changes
-- Pressing the **“Allies and Enemies”** button highlights an empire’s allies and enemies when hovering over their star systems. 
-
-![AiAlliesEnemies](images/AiAlliesEnemies.png "Allies and Enemies of an AI Empire")
-*Allies (green squares) and enemies (red squares) of an AI Empire*
-
-## Warfare
-
-### AI Attack Logic
-- The AI no longer attacks planets randomly; it now targets systems near its own and avoids “jumping over” stars. 
-- Each “turn,” empires produce bombers based on the terraforming and spices of all their planets. They use those bombers to attack enemy planets, so larger and more developed empires can raid more planets.
-- The number of bombers assigned to attack a planet depends on its defenses. An empire may send just a few bombers to attack a T0 planet, but deploy massive fleets to attack homeworlds or T3 planets.
-
-### Player Attacks
-- The player now has access to a new tool called **“Invasion Call”**, allowing the player to summon a fleet from their empire to an enemy system.
-- The fleet size and cost of using the tool depend on the planet’s defenses, using the same logic as the AI.
-
-![InvasionCallTooltip](images/InvasionCallTooltip.png "Invasion Call Tooltip")
-*Invasion Call: Tooltip*
-
-![InvasionCallPlanet](images/InvasionCallEffect.png "Invasion Call effect")
-*Invasion Call: Summoned a Player Fleet*
-
-### Customization and Settings
-- **Active Radius:** Defines the mod’s active range relative to the *active range center* (the player's position or homeworld, depending on the next option); only empires within XX pc will make alliances, declare wars, attack their enemies, etc. Options range from 40 pc to 200 pc, larger values may impact performance.
-- **Active Range Center:** Defines the center of the radius in which the mod is active. It can be the player's homeworld (for a static active range) or based on the player's current position, to "activate" other zones as the player moves through the galaxy.
-- **Player Exclusion Depth:** To prevent the mod from affecting other saved games, empires belonging to other players' save files are automatically excluded from being affected by the mod. Options are also provided to additionally exclude the allies and enemies of other players' empires, and finally, to also exclude the allies and enemies of those empires' allies and enemies. Excluded empires are identified by not having the affinity interface in the communications panel (the number to the right of the relationship, shown in other screenshots), and it's heavily recommended that the player not interact with those empires either.
-- **Relationship Effects:** Rebalances relationship effects to make it harder to reach a high relationship with an empire, forcing the player to engage with the affinity system. Can be set to vanilla-like to override these changes.
-- **AI Aggressiveness:** Adjusts the base probability of AI empires starting wars. Options are low, normal and high.
-- **Notifications:** Adjust which notifications the player receives based on type and relationship. For alliance formations, broken alliances, and war declarations, you can choose to receive no notifications, only notifications involving allies and/or enemies, or all notifications regardless of participants. 
-- **Space Combat:** Rebalances all space combat values (from player weapons to empire ships' health) for smoother early-to-late game progression. No changes are made to empires of level 5, the Grox, or the highest-level weapons, changes buff lower levels to reduce power spikes. Includes an option to remove the tool Rally-Call while buffing the base damage of all player and posse weapons.  Also includes an option to leave space combat unchanged.
-- **AI Bomber Production Rate:** Multiplier for AI bomber production, ranging from 15% of the base rate to four times as fast.
-- **Player Bomber Cost:** Sets the cost of each bomber when using the “Invasion Call” tool. 
-- **Hostile Archetype Buffs:** increases bomber production for AI empires with archetypes incompatible with the player, making the space stage more challenging. Ranges from no buffs to extreme buffs.
-- **Warrior & Zealot Buffs:** Buffs AI Zealots and Warriors empires to compensate for their diplomatic isolation. Warriors receive a flat +4 to bomber production (a buff stronger in the early game) while Zealots get a x1.20 multiplier, a general buff that is stronger in the late game.
-- **Sensible AI Colonization Patch:** Compatibility patch for the Sensible AI Colonization mod. Apply if the mod is installed. 
-
-## Installation
-- Requires [UPE](https://github.com/Zarklord/UniversalPropertyEnhancer/releases/tag/v1.2.0).
-- Starting a new game is recommended to correctly apply affinity bonuses and penalties. No galaxy reset required.
-
-## Known Issues
-- Knights and Wanderers are not fully integrated into the affinity system, they get treated as Warriors or Diplomats respectively.
-- AI attack strength against the player is the same as against other empires, which can be harder than intended if you don’t have *Defensive Ships in Player Colonies* installed.
-- Not balanced for Uber Turret yet.
-- Uninstalling the mod leaves behind the diplomacyWarfareOverhaulDB file in Spore/Games/Game0. You can delete it manually, but leaving it there shouldn't have any negative effect.
-
-This is a very large mod that changes many aspects of the game. For any issues or suggestions, contact me on Discord or create an issue on GitHub.
+• Original Space Diplomacy & Warfare Overhaul architecture and UI assets by Sadicto.
+• 4X Treasury Economy, Galactic Trade Network, 3D Convoys, Philosophy Asymmetry, Gadget AI, Save Persistence, and Galactic Secession Overhaul by GreenPerfectAlt.
