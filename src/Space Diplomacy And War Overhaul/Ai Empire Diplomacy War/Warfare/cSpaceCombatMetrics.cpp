@@ -544,14 +544,38 @@ void cSpaceCombatMetrics::GetStarActiveTradePartners(
 	}
 
 	// 2. Все маршруты ИИ <-> ИИ и ИИ <-> Игрок из нашей торговой сети
-	uint32_t targetStarId = star->GetID().internalValue;
-	for (const auto& route : galacticTradeRoutes) {
-		if (route.starIdA != targetStarId && route.starIdB != targetStarId) continue;
-		uint32_t otherStarId = (route.starIdA == targetStarId) ? route.starIdB : route.starIdA;
-		cStarRecord* otherStar = StarManager.GetStarRecord(StarID(otherStarId));
-		if (!otherStar || otherStar->mEmpireID == 0) continue;
+	// Определяем, является ли эта звезда крупным торговым хабом империи (Столица или планета T3)
+	bool isMajorEmpireHub = false;
+	if (starOwner && EmpireUtils::GetHomeStar(starOwner) == star) {
+		isMajorEmpireHub = true;
+	} else {
+		for (const auto& pl : star->GetPlanetRecords()) {
+			if (pl && pl->GetTechLevel() == TechLevel::Empire && pl->mType == PlanetType::T3) {
+				isMajorEmpireHub = true;
+				break;
+			}
+		}
+	}
 
-		if (otherStar->mEmpireID != star->mEmpireID && !IsStarBlockaded(otherStar)) {
+	// 2. Маршруты ИИ <-> ИИ и ИИ <-> Игрок (на крупных хабах Столиц/T3 собираются корабли ВСЕХ партнеров державы!)
+	uint32_t targetStarId = star->GetID().internalValue;
+	uint32_t ownerEmpireId = star->mEmpireID;
+
+	for (const auto& route : galacticTradeRoutes) {
+		cStarRecord* sA = StarManager.GetStarRecord(StarID(route.starIdA));
+		cStarRecord* sB = StarManager.GetStarRecord(StarID(route.starIdB));
+		if (!sA || !sB || sA->mEmpireID == 0 || sB->mEmpireID == 0) continue;
+
+		bool directStarMatch = (route.starIdA == targetStarId || route.starIdB == targetStarId);
+		bool empireHubMatch = isMajorEmpireHub && (sA->mEmpireID == ownerEmpireId || sB->mEmpireID == ownerEmpireId);
+		if (!directStarMatch && !empireHubMatch) continue;
+
+		cStarRecord* otherStar = (sA->mEmpireID == ownerEmpireId) ? sB : sA;
+		if (directStarMatch) {
+			otherStar = (route.starIdA == targetStarId) ? sB : sA;
+		}
+
+		if (otherStar && otherStar->mEmpireID != ownerEmpireId && !IsStarBlockaded(otherStar)) {
 			addUniquePartner(StarManager.GetEmpire(otherStar->mEmpireID));
 		}
 	}
@@ -628,6 +652,57 @@ void cSpaceCombatMetrics::CalculateDynamicConvoySpecs(
 	outHpMult = outScaleMult * (gadgets.hasUberTurret ? 1.25f : 1.10f);
 }
 
+void cSpaceCombatMetrics::BootstrapInitialTradeNetwork()
+{
+	SdoTradeConfigValues cfg = GetTradeConfig();
+	if (cfg.incomeMultiplier <= 0.01f || !IsSpaceGame()) return;
+
+	// Если сеть уже заполнена из сейва — ничего лишнего не крутим
+	if (static_cast<int>(galacticTradeRoutes.size()) >= cfg.maxRoutesPerEmpire * 2) {
+		return;
+	}
+
+	cCompositionRoot* root = cCompositionRoot::Get();
+	StarRequestFilter empStarsFilter;
+	empStarsFilter.RemoveStarType(Simulator::StarType::None);
+	empStarsFilter.RemoveStarType(Simulator::StarType::GalacticCore);
+	empStarsFilter.RemoveStarType(Simulator::StarType::ProtoPlanetary);
+	empStarsFilter.RemoveStarType(Simulator::StarType::BlackHole);
+	empStarsFilter.techLevels = 0;
+	empStarsFilter.AddTechLevel(Simulator::TechLevel::Empire);
+	empStarsFilter.minDistance = 0.0f;
+	empStarsFilter.maxDistance = 40.0f;
+
+	cEmpire* playerEmp = GetPlayerEmpire();
+	if (!playerEmp || playerEmp->mStars.empty()) return;
+
+	// Собираем живые соседние империи вокруг игрока в радиусе активного сектора галактики
+	eastl::vector<cStarRecordPtr> sectorStars;
+	StarManager.FindStars(playerEmp->mStars.front()->mPosition, empStarsFilter, sectorStars);
+
+	eastl::vector<cEmpire*> activeEmpires;
+	for (const auto& st : sectorStars) {
+		if (!st || st->mEmpireID == 0) continue;
+		cEmpire* emp = StarManager.GetEmpire(st->mEmpireID);
+		if (!emp || emp == playerEmp) continue;
+		if (root && root->simulationValidator && !root->simulationValidator->ValidEmpire(emp, true)) continue;
+
+		bool exists = false;
+		for (cEmpire* e : activeEmpires) {
+			if (e == emp) { exists = true; break; }
+		}
+		if (!exists) activeEmpires.push_back(emp);
+	}
+
+	// Сразу даем каждой империи проложить стартовые маршруты строго по XML-квоте cfg.maxRoutesPerEmpire
+	int initialPassCount = max(1, cfg.maxRoutesPerEmpire / 2);
+	for (int pass = 0; pass < initialPassCount; ++pass) {
+		for (cEmpire* emp : activeEmpires) {
+			ManageAndCalculateEmpireTradeIncome(emp, 1000, 18.0f);
+		}
+	}
+}
+
 void cSpaceCombatMetrics::EnsurePersistenceLoaded()
 {
 	if (persistenceImported || !IsSpaceGame()) return;
@@ -636,9 +711,11 @@ void cSpaceCombatMetrics::EnsurePersistenceLoaded()
 		cPersistenceState* state = dbMgr->GetPersistenceState();
 		if (state != nullptr) {
 			ImportStateFromPersistence(state);
+			BootstrapInitialTradeNetwork();
 		}
 	}
 }
+
 
 void cSpaceCombatMetrics::ExportStateToPersistence(cPersistenceState* state)
 {
