@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <mod
-  description="This mod completely overhauls warfare and diplomacy in the Space Stage. AI empires now choose their allies and enemies based on archetype compatibility and shared relationships. During war, AI empires no longer attack random planets every few minutes, instead, they produce bombers and use them to attack enemy systems using a much more logical algorithm. Check the github page for the full changelog. Requires UPE."
-  displayName="Space Diplomacy And Warfare Overhaul"
+  description="Living 4X Space Stage Overhaul (Part 2). Adds AI Empire Treasuries, 3D Multi-Species Trade Convoys &amp; Plundering, 10 Asymmetrical Philosophy Doctrines (Zealot Schism, Shaman Reincarnation, Ecologist Bio-Regen), Orbital Dreadnoughts, and Background Galactic Revolutions with Breakaway Republics! Install alongside 'Defensive Ships in Player Colonies' (Part 1) to configure 4X presets. Requires UPE."
+  displayName="Space Diplomacy And Warfare Overhaul (4X Extended)"
   dllsBuild="$SPOREMOD_DLLS_BUILD"
-  githubUrl="https://github.com/Sadicto/Space-Diplomacy-And-Warfare-Overhaul"
+  githubUrl="https://github.com"
   hasCustomInstaller="true"
   installerSystemVersion="1.0.1.2"
   isExperimental="$SPOREMOD_EXPERIMENTAL"
   unique="SpaceDiplomacyAndWarfareOverhaul"
-  websiteUrl="https://github.com/Sadicto/Space-Diplomacy-And-Warfare-Overhaul">
+  websiteUrl="https://github.com/GreenPerfectAlt/Space-Diplomacy-And-Warfare-Overhaul_GreenPerfectAlt">
+
 
 	<!-- RadiusConfig -->
 	<componentGroup displayName="Active Radius" unique="Space-Diplomacy-And-Warfare-Overhaul_Radius_Config">
