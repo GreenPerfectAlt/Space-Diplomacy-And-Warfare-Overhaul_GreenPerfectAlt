@@ -50,6 +50,9 @@ static eastl::map<uint32_t, uint32_t> sZealotEmpireSchismEndTime;
 static int sGalaxyRevolutionTickAccumMs = 0;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcHangarJamCooldowns;
 static eastl::map<cPlanetRecordPtr, uint32_t> sShamanEcoShockEndTime;
+static eastl::map<cPlanetRecordPtr, uint32_t> sEcologistNecrosisEndTime;
+static int sEcologistBioPulseAccumMs = 0;
+static int sEcologistSporeSwarmsThisBattle = 0;
 static int sShamanReincarnationsThisBattle = 0;
 static bool sShamanWardenSummonedThisVisit = false;
 static bool sIsSpawningReincarnatedSpirit = false;
@@ -270,6 +273,7 @@ static void ProcessBackgroundGalacticRevolutions(int deltaGameTime)
 }
 
 static void TrySummonShamanAstralWarden(cPlanetRecord* pRec, cEmpire* planetEmpire, cCompositionRoot* root);
+static void ProcessEcologistBiospherePulse(int deltaGameTime);
 
 class cOrbitalVisualsStrategy : public Simulator::cStrategy
 {
@@ -294,6 +298,8 @@ public:
 			}
 			return;
 		}
+		
+		ProcessEcologistBiospherePulse(deltaGameTime);
 
 		if (!sShamanWardenSummonedThisVisit && GetActivePlanetRecord() && GetActivePlanetRecord()->GetStarRecord()) {
 			cEmpire* hostEmp = StarManager.GetEmpire(GetActivePlanetRecord()->GetStarRecord()->mEmpireID);
@@ -354,6 +360,63 @@ static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, 
 
 static bool IsNpcPlanetInCombat(cPlanetRecord* planet, cEmpire* ownerEmpire);
 static bool IsShamanAstralNexusSevered(cEmpire* empire, cCompositionRoot* root);
+
+static void ProcessEcologistBiospherePulse(int deltaGameTime)
+{
+	if (deltaGameTime <= 0) return;
+	sEcologistBioPulseAccumMs += deltaGameTime;
+	if (sEcologistBioPulseAccumMs < 2000) return; // Строго раз в 2 секунды — 0 нагрузки на FPS!
+	sEcologistBioPulseAccumMs = 0;
+
+	cPlanetRecord* activePlanet = GetActivePlanetRecord();
+	if (!activePlanet || !activePlanet->GetStarRecord()) return;
+
+	cEmpire* hostEmp = StarManager.GetEmpire(activePlanet->GetStarRecord()->mEmpireID);
+	cCompositionRoot* root = cCompositionRoot::Get();
+	if (!hostEmp || !root || !root->spaceCombatMetrics) return;
+	if (ArchetypeUtils::GetBaseArchetype(hostEmp->mArchetype) != Archetypes::kArchetypeEcologist) return;
+
+	float regenXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC15, 0.06f);
+	if (regenXml <= 0.005f) return;
+
+	uint32_t nowTime = (root->persistenceState != nullptr) ? root->persistenceState->GetCurrentSpaceTime() : 0;
+	auto itNecro = sEcologistNecrosisEndTime.find(activePlanet);
+	bool necrosisActive = (itNecro != sEcologistNecrosisEndTime.end() && nowTime > 0 && nowTime < itNecro->second);
+
+	int tScore = 0;
+	if (activePlanet->mType == PlanetType::T1) tScore = 1;
+	else if (activePlanet->mType == PlanetType::T2) tScore = 2;
+	else if (activePlanet->mType == PlanetType::T3) tScore = 3;
+
+	// На выжженном камне T0 регенерации нет (работает только распад при Некрозе)
+	if (tScore == 0 && !necrosisActive) return;
+
+	SdoPlanetGadgetInfo gInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(activePlanet);
+	float bioBoost = gInfo.hasBioProtector ? 1.35f : 1.0f;
+	float tFactor = std::pow(static_cast<float>(tScore) / 3.0f, 1.5f);
+
+	for (const auto& ufo : GetData<cGameDataUFO>()) {
+		if (!ufo || ufo->mHealthPoints <= 0.0f || ufo->mMaxHealthPoints <= 1.0f) continue;
+
+		bool isHostShip = (ufo->mPoliticalID == hostEmp->GetEmpireID());
+		bool isAlliedGuest = (!isHostShip && sActiveTradeFreighters.find(ufo.get()) != sActiveTradeFreighters.end() &&
+		                      !RelationshipManager.IsAtWar(hostEmp, StarManager.GetEmpire(ufo->mPoliticalID)));
+
+		if (!isHostShip && !isAlliedGuest) continue;
+
+		if (necrosisActive && isHostShip) {
+			// Токсичный некроз: живая обшивка гниет в полете!
+			float decay = ufo->mMaxHealthPoints * (regenXml * 0.45f);
+			ufo->mHealthPoints = max(ufo->mHealthPoints - decay, 15.0f);
+		} else if (!necrosisActive && ufo->mHealthPoints < ufo->mMaxHealthPoints) {
+			// Логистический фотосинтез: быстро лечит тяжелые раны, но пробивается фокусом огня
+			float missingRatio = 1.0f - (ufo->mHealthPoints / ufo->mMaxHealthPoints);
+			float allyMult = isHostShip ? 1.0f : 0.5f;
+			float heal = ufo->mMaxHealthPoints * regenXml * tFactor * bioBoost * missingRatio * allyMult;
+			ufo->mHealthPoints = min(ufo->mHealthPoints + heal, ufo->mMaxHealthPoints);
+		}
+	}
+}
 
 static void TrySummonShamanAstralWarden(cPlanetRecord* pRec, cEmpire* planetEmpire, cCompositionRoot* root)
 {
@@ -741,19 +804,20 @@ static float GetNpcPlanetaryCityUnrestFactor(cPlanetRecord* planet)
 	}
 
 	float factoryStrain = 0.0f;
-	int allowedFactories = (ownerArch == Archetypes::kArchetypeEcologist && underWarOrBlockade)
-		? (totalEntertainment + totalCities)
-		: (totalEntertainment * 2 + totalCities);
-
-	if (totalFactories > allowedFactories) {
-		int excessFactories = totalFactories - allowedFactories;
-		float archFactorySensitivity = 1.0f;
-		// В мирное время не душим ИИ за автозастройку Maxis, а при войне/блокаде Экологи (2.5x) и Ученые (2.0x) бастуют жестко!
-		if (underWarOrBlockade) {
-			if (ownerArch == Archetypes::kArchetypeEcologist) archFactorySensitivity = 2.5f;
-			else if (ownerArch == Archetypes::kArchetypeScientist) archFactorySensitivity = 2.0f;
+	if (ownerArch == Archetypes::kArchetypeEcologist && (underWarOrBlockade || IsNpcPlanetInCombat(planet, planetOwner))) {
+		// Квадратичный Зеленый бунт: если в бою выбить парки так, что Фабрики > Развлечения, вспыхивает эко-террор!
+		if (totalFactories > totalEntertainment) {
+			float crusadeXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC17, 0.35f);
+			float ratio = static_cast<float>(totalFactories - totalEntertainment) / static_cast<float>(max(totalCities, 1));
+			factoryStrain = min((crusadeXml * 1.4f) * (ratio * ratio), 0.90f);
 		}
-		factoryStrain = min(static_cast<float>(excessFactories) * 0.06f * archFactorySensitivity, 0.75f);
+	} else {
+		int allowedFactories = totalEntertainment * 2 + totalCities;
+		if (totalFactories > allowedFactories) {
+			int excessFactories = totalFactories - allowedFactories;
+			float archFactorySensitivity = (underWarOrBlockade && ownerArch == Archetypes::kArchetypeScientist) ? 2.0f : 1.0f;
+			factoryStrain = min(static_cast<float>(excessFactories) * 0.06f * archFactorySensitivity, 0.75f);
+		}
 	}
 
 	float rawUnrest = min(unhappyScore + factoryStrain, 1.0f) * unrestMult;
@@ -1131,7 +1195,13 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 
 		if (ufoType == UfoType::Bomber) {
 			customHP = root->spaceCombatMetrics->GetBomberHealthByEmpire(ownerEmpire);
+			if (ArchetypeUtils::GetBaseArchetype(ownerEmpire->mArchetype) == Archetypes::kArchetypeEcologist &&
+			    GetCurrentContext() == SpaceContext::Planet && GetActivePlanetRecord() && GetActivePlanetRecord()->GetStarRecord()) {
+				cEmpire* targetHost = StarManager.GetEmpire(GetActivePlanetRecord()->GetStarRecord()->mEmpireID);
+				customHP *= root->spaceCombatMetrics->GetEmpirePollutionIndex(targetHost); // Карательный Эко-поход против промышленников!
+			}
 		}
+
 		else if (ufoType == UfoType::Defender) {
 			customHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(ownerEmpire);
 			if (GetCurrentContext() == SpaceContext::Planet && GetActivePlanetRecord() != nullptr) {
@@ -1169,6 +1239,20 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 				}
 			}
 
+			if (ArchetypeUtils::GetBaseArchetype(ownerEmpire->mArchetype) == Archetypes::kArchetypeEcologist &&
+			    GetCurrentContext() == SpaceContext::Planet && GetActivePlanetRecord()) {
+				cPlanetRecord* actPl = GetActivePlanetRecord();
+				if (actPl->mType == PlanetType::T0) {
+					customHP *= 0.75f; // Без биосферы органическая броня пересыхает!
+				}
+				uint32_t nowT = (root->persistenceState != nullptr) ? root->persistenceState->GetCurrentSpaceTime() : 0;
+				auto itNec = sEcologistNecrosisEndTime.find(actPl);
+				if (itNec != sEcologistNecrosisEndTime.end() && nowT > 0 && nowT < itNec->second) {
+					customHP *= 0.65f; // Токсичный некроз разъедает обшивку новых кораблей!
+				}
+			}
+			
+			
 			if (ownerEmpire->mStars.size() >= 3 && ownerEmpire->mEmpireMoney >= richThreshold) {
 				customHP *= 1.20f;
 			} else if (ownerEmpire->mEmpireMoney > 0 && ownerEmpire->mEmpireMoney < crisisThreshold) {
@@ -1199,6 +1283,7 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 
 		sIsGeneratingInitialPlanetGarrison = true;
 		sShamanReincarnationsThisBattle = 0;
+		sEcologistSporeSwarmsThisBattle = 0;
 		sShamanWardenSummonedThisVisit = false;
 		sActiveTradeFreighters.clear();
 		ClearScaledOrbitalShips();
@@ -1406,6 +1491,39 @@ static void HandlePlayerToolOnNpcPlanet(cSpaceToolData* pTool)
 			sRaiderRallyPanicActive = true;
 		}
 	}
+
+	else if (ArchetypeUtils::GetBaseArchetype(npcEmpire->mArchetype) == Archetypes::kArchetypeEcologist) {
+		float necroSecXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC16, 45.0f);
+		// А) Похищающий луч (кража животных!), Искоренитель видов, Антивещество и Гигадетонатор вызывают Токсичный некроз!
+		if (MatchNpcToolKey(toolId, "abduct", "tractorbeam", "eradicate", 0x03F3E470, 0x04668B88) ||
+		    MatchNpcToolKey(toolId, "antimatterbomb", "antimattermissile", "megabomb", 0x03F3E494, 0x03F3E495) ||
+		    MatchNpcToolKey(toolId, "specieseradicator", "plague", "bioweapon", 0x04668B89, 0x04668B8A)) {
+			if (nowTime > 0 && necroSecXml > 1.0f) {
+				sEcologistNecrosisEndTime[cPlanetRecordPtr(activePlanet)] = nowTime + static_cast<uint32_t>(round(necroSecXml * 1000.0f));
+				Audio::PlayAudio(id("spc_biome_disaster"));
+			}
+		}
+		// Б) Обычное климатическое оружие на живой планете T1-T3 злит биосферу -> Контрудар роя спор (до 3 волн за бой)!
+		else if (activePlanet->mType != PlanetType::T0 && sEcologistSporeSwarmsThisBattle < 3 && necroSecXml > 1.0f &&
+		         (MatchNpcToolKey(toolId, "meteorstrike", "volcano", "drought", 0x04668B70, 0x04668B71) ||
+		          MatchNpcToolKey(toolId, "asteroidcallbutton", "iceray", "heatray", 0x03F3E485, 0x04668B72))) {
+			sEcologistSporeSwarmsThisBattle++;
+			int swarmCount = (activePlanet->mType == PlanetType::T3) ? 3 : 2;
+			int* pPol = &npcEmpire->mPoliticalID;
+			ResourceKey* pKey = &npcEmpire->mUFOKey;
+			for (int s = 0; s < swarmCount; ++s) {
+				cGameDataUFO* sporeFighter = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+					cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+					Args(UfoType::Defender, pPol, pKey));
+				if (sporeFighter) {
+					RegisterScaledOrbitalShip(sporeFighter, 1.35f, id("spc_rare_glow"));
+				}
+			}
+			Audio::PlayAudio(id("spc_eco_disaster_alert"));
+		}
+	}
+
+		
 	else if (!RelationshipManager.IsAtWar(npcEmpire, GetPlayerEmpire()) &&
 	         (MatchNpcToolKey(toolId, "minderase", "globalminderase", "happyray", 0x03F3E491, 0x03F3E481) ||
 	          MatchNpcToolKey(toolId, "fireworks", "superhappyray", nullptr, 0x03F3E480, 0x04668B81))) {
