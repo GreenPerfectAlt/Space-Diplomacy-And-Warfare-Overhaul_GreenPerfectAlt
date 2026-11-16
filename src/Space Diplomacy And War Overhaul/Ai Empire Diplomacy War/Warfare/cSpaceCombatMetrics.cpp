@@ -1127,7 +1127,7 @@ float cSpaceCombatMetrics::GetBomberHealthByEmpire(Simulator::cEmpire* empire)
 	}
 }
 
-float cSpaceCombatMetrics::GetTurretHealthByEmpire(Simulator::cEmpire* empire)
+float cSpaceCombatMetrics::GetFighterHealthByEmpire(Simulator::cEmpire* empire)
 {
 	if (empire == nullptr) return GetFighterHealthByLevel(0);
 	float baseHealth = GetFighterHealthByLevel(empire->GetWeaponryLevel());
@@ -1137,13 +1137,26 @@ float cSpaceCombatMetrics::GetTurretHealthByEmpire(Simulator::cEmpire* empire)
 	switch (baseArchetype) {
 	case Archetypes::kArchetypeWarrior:
 	case Archetypes::kArchetypeGrob:
-		return baseHealth * (1.0f + (0.25f * levelFactor));
+		return baseHealth * (1.0f + (0.30f * levelFactor));
 	case Archetypes::kArchetypeZealot:
 	case Archetypes::kArchetypeScientist:
-		return baseHealth * (1.0f + (0.08f * levelFactor));
+		return baseHealth * (1.0f + (0.10f * levelFactor));
 	case Archetypes::kArchetypeBard:
 	case Archetypes::kArchetypeDiplomat:
-		return baseHealth * (1.0f - (0.15f * (1.0f - levelFactor * 0.5f)));
+		return baseHealth * (1.0f - (0.20f * (1.0f - levelFactor * 0.5f)));
+	case Archetypes::kArchetypeShaman: {
+		cStarRecord* homeSt = EmpireUtils::GetHomeStar(empire);
+		bool homeSevered = (!homeSt || homeSt->mEmpireID != empire->GetEmpireID() || IsStarBlockaded(homeSt));
+		if (homeSevered) {
+			float nexusPenalty = 0.30f;
+			PropertyListPtr gProp;
+			if (PropManager.GetPropertyList(id(u"GadgetConfig"), 0x02ae0c7e, gProp) && gProp != nullptr) {
+				App::Property::GetFloat(gProp.get(), 0x07A1BC13, nexusPenalty);
+			}
+			return baseHealth * max(0.45f, 1.0f - nexusPenalty);
+		}
+		return baseHealth;
+	}
 	default:
 		return baseHealth;
 	}
