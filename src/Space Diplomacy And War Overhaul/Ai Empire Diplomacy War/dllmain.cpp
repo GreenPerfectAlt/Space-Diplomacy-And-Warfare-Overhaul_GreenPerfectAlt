@@ -66,7 +66,7 @@ static void StartLoopingShipAura(cGameDataUFO* ufo, float scaleMult, IVisualEffe
 	outFx = nullptr;
 	if (!ufo) return;
 
-	float auraScale = isBossDreadnought ? 0.38f : 0.22f;
+	float auraScale = scaleMult * 0.42f;
 	if (EffectsManager.CreateVisualEffect(id("spc_rare_glow"), 0, outFx) && outFx != nullptr) {
 		outFx->SetSourceTransform(Transform().SetOffset(ufo->GetPosition()).SetScale(auraScale));
 		outFx->Start();
@@ -137,7 +137,7 @@ public:
 			}
 
 			if (it->second.auraFx != nullptr) {
-				float auraSc = (it->second.targetScale >= 1.85f) ? 0.38f : 0.22f;
+				float auraSc = it->second.targetScale * 0.42f;
 				it->second.auraFx->SetSourceTransform(
 					Transform().SetOffset(ship->GetPosition()).SetScale(auraSc));
 			}
