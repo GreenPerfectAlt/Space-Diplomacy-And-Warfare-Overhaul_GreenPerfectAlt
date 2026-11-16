@@ -353,6 +353,7 @@ static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, 
 }
 
 static bool IsNpcPlanetInCombat(cPlanetRecord* planet, cEmpire* ownerEmpire);
+static bool IsShamanAstralNexusSevered(cEmpire* empire, cCompositionRoot* root);
 
 static void TrySummonShamanAstralWarden(cPlanetRecord* pRec, cEmpire* planetEmpire, cCompositionRoot* root)
 {
