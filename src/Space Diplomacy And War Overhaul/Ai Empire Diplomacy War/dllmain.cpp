@@ -49,6 +49,9 @@ static eastl::map<cPlanetRecordPtr, uint32_t> sNpcPlanetUprisingCooldowns;
 static eastl::map<uint32_t, uint32_t> sZealotEmpireSchismEndTime;
 static int sGalaxyRevolutionTickAccumMs = 0;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcHangarJamCooldowns;
+static eastl::map<cPlanetRecordPtr, uint32_t> sShamanEcoShockEndTime;
+static int sShamanReincarnationsThisBattle = 0;
+static bool sIsSpawningReincarnatedSpirit = false;
 static eastl::set<cGameDataUFO*> sActiveTradeFreighters;
 static eastl::map<cGameDataUFO*, SpecialOrbitalShipVisual> sScaledOrbitalShips;
 static bool sRaiderRallyPanicActive = false;
@@ -338,6 +341,18 @@ static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, 
 	return val;
 }
 
+// O(1) проверка «Возвратного билета»: разорвана ли астральная связь Шамана с его Родной Столицей?
+static bool IsShamanAstralNexusSevered(cEmpire* empire, cCompositionRoot* root)
+{
+	if (!empire || !root || !root->spaceCombatMetrics) return false;
+	cStarRecord* homeStar = EmpireUtils::GetHomeStar(empire);
+	if (!homeStar || homeStar->mEmpireID != empire->GetEmpireID()) {
+		return true; // Родной мир захвачен чужаками — Исток потерян!
+	}
+	return root->spaceCombatMetrics->IsStarBlockaded(homeStar); // Столица в осаде — порталы закрыты!
+}
+
+
 static float ReadWarfareConfigFloat(uint32_t propID, float defaultVal)
 {
 	PropertyListPtr configKeys;
@@ -410,6 +425,59 @@ public:
 					}
 				} else if (cargoOwner) {
 					cargoOwner->mEmpireMoney = max(cargoOwner->mEmpireMoney - lootAmount, 0);
+				}
+			}
+		}
+				// Колесо перерождений Шаманов (Phoenix Reincarnation): убывающая вероятность P(k) = P0 * (T/3)^1.25 / (1 + 0.45*k)
+		if (!sIsSpawningReincarnatedSpirit && GetCurrentContext() == SpaceContext::Planet &&
+		    deadUfo->mUFOType == static_cast<int>(UfoType::Defender)) {
+
+			cPlanetRecord* activePlanet = GetActivePlanetRecord();
+			cCompositionRoot* root = cCompositionRoot::Get();
+			cEmpire* deadOwner = StarManager.GetEmpire(deadUfo->mPoliticalID);
+
+			if (activePlanet && root && root->spaceCombatMetrics && deadOwner && deadOwner != GetPlayerEmpire() &&
+			    ArchetypeUtils::GetBaseArchetype(deadOwner->mArchetype) == Archetypes::kArchetypeShaman) {
+
+				float baseReincarnateXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC12, 0.38f);
+				int tScore = 0;
+				if (activePlanet->mType == PlanetType::T1) tScore = 1;
+				else if (activePlanet->mType == PlanetType::T2) tScore = 2;
+				else if (activePlanet->mType == PlanetType::T3) tScore = 3;
+
+				uint32_t nowTime = (root->persistenceState != nullptr) ? root->persistenceState->GetCurrentSpaceTime() : 0;
+				auto itShock = sShamanEcoShockEndTime.find(activePlanet);
+				bool ecoShocked = (itShock != sShamanEcoShockEndTime.end() && nowTime > 0 && nowTime < itShock->second);
+
+				// Работает только на живых мирах (T1..T3), без Эко-шока и при живой связи со Столицей!
+				if (baseReincarnateXml > 0.01f && tScore > 0 && !ecoShocked && !IsShamanAstralNexusSevered(deadOwner, root)) {
+					SdoPlanetGadgetInfo gInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(activePlanet);
+					float bioMult = gInfo.hasBioProtector ? 1.25f : 1.0f;
+					float gaiaFactor = std::pow(static_cast<float>(tScore) / 3.0f, 1.25f);
+					float damping = 1.0f + 0.45f * static_cast<float>(sShamanReincarnationsThisBattle);
+
+					float prob = (baseReincarnateXml * gaiaFactor * bioMult) / damping;
+					if (Math::randf() < min(prob, 0.75f)) {
+						sShamanReincarnationsThisBattle++;
+						sIsSpawningReincarnatedSpirit = true;
+
+						int* pPol = &deadOwner->mPoliticalID;
+						ResourceKey* pKey = &deadOwner->mUFOKey;
+						cGameDataUFO* reborn = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+							cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+							Args(UfoType::Defender, pPol, pKey));
+
+						if (reborn) {
+							reborn->SetPosition(deadUfo->GetPosition());
+							Audio::PlayAudio(id("spc_wormhole_enter"));
+							IVisualEffectPtr portalFx;
+							if (EffectsManager.CreateVisualEffect(id("spc_collect_rare"), 0, portalFx) && portalFx != nullptr) {
+								portalFx->SetSourceTransform(Transform().SetOffset(deadUfo->GetPosition()).SetScale(1.2f));
+								portalFx->Start();
+							}
+						}
+						sIsSpawningReincarnatedSpirit = false;
+					}
 				}
 			}
 		}
@@ -807,14 +875,24 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 		float coreRadius = ReadWarfareRangeForEmpire(ownerEmpire, 12.0f);
 		if (coreRadius <= 0.0f) coreRadius = 12.0f;
 
-		if (baseArch == Archetypes::kArchetypeWarrior || baseArch == Archetypes::kArchetypeTrader) {
+		if (baseArch == Archetypes::kArchetypeShaman) {
+			// Шаманы: пространственный инвариант Return Ticket (0% роста от парсеков, пока жива Столица!)
+			bool nexusSevered = IsShamanAstralNexusSevered(ownerEmpire, root);
+			distanceFactor = nexusSevered ? 1.50f : 0.55f;
+		} else if (baseArch == Archetypes::kArchetypeEcologist) {
+			// Экологи: экспоненциальная гармония на живых T2/T3, но отчуждение на мертвых камнях T0!
+			if (activePlanet->mType == PlanetType::T0) {
+				if (dist > coreRadius) distanceFactor = min(1.0f + (dist - coreRadius) * 0.025f, 1.35f);
+			} else {
+				distanceFactor = max(0.62f, std::exp(-0.012f * max(dist - coreRadius * 0.5f, 0.0f)));
+			}
+		} else if (baseArch == Archetypes::kArchetypeWarrior || baseArch == Archetypes::kArchetypeTrader) {
 			if (dist > coreRadius) distanceFactor = min(1.0f + (dist - coreRadius) * 0.03f, 1.60f);
-		} else if (baseArch == Archetypes::kArchetypeDiplomat || baseArch == Archetypes::kArchetypeEcologist ||
-		           baseArch == Archetypes::kArchetypeBard || baseArch == Archetypes::kArchetypeShaman) {
+		} else if (baseArch == Archetypes::kArchetypeDiplomat || baseArch == Archetypes::kArchetypeBard) {
 			if (dist > coreRadius * 0.8f) distanceFactor = max(1.0f - (dist - coreRadius * 0.8f) * 0.02f, 0.65f);
 		} else if (baseArch == Archetypes::kArchetypeScientist) {
 			float relayRange = max(coreRadius * 1.8f, 25.0f);
-			if (dist > relayRange) distanceFactor = min(1.0f + (dist - relayRange) * 0.015f, 1.20f);
+			if (dist > relayRange) distanceFactor = min(1.0f + (dist - relayRange) * 0.015f, 1.25f);
 		}
 	}
 
@@ -844,6 +922,14 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 		subversionFactor *= 1.35f;
 	}
 
+	if (baseArch == Archetypes::kArchetypeShaman) {
+		uint32_t nowT = (root->persistenceState != nullptr) ? root->persistenceState->GetCurrentSpaceTime() : 0;
+		auto itEco = sShamanEcoShockEndTime.find(activePlanet);
+		if (itEco != sShamanEcoShockEndTime.end() && nowT > 0 && nowT < itEco->second) {
+			subversionFactor *= 2.15f; // Духовный шок от климатического оружия!
+		}
+	}
+	
 	float finalChance = rebellionChance * planetTierFactor * spiceFactor * infrastructureFactor * distanceFactor * subversionFactor * rebellionMultiplier;
 	if (gadgets.hasLoyaltyBooster) {
 		float suppression = min(0.90f * gadgetMult, 0.98f);
@@ -943,12 +1029,22 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 		if (!ownerEmpire && gadgetMult > 0.01f && GetPlayerEmpire() != nullptr) {
 			cEmpire* playerEmp = GetPlayerEmpire();
 			float raiderHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(playerEmp) * (0.90f + 0.25f * gadgetMult);
+			if (GetCurrentContext() == SpaceContext::Planet && GetActivePlanetRecord() && GetActivePlanetRecord()->GetStarRecord()) {
+				cEmpire* hostEmp = StarManager.GetEmpire(GetActivePlanetRecord()->GetStarRecord()->mEmpireID);
+				if (hostEmp && ArchetypeUtils::GetBaseArchetype(hostEmp->mArchetype) == Archetypes::kArchetypeShaman) {
+					SdoPlanetGadgetInfo hg = root->spaceCombatMetrics->GetPlanetGadgetInfo(GetActivePlanetRecord());
+					if (hg.hasHappinessBooster || hg.hasBioProtector) {
+						raiderHP *= max(0.55f, 1.0f - 0.22f * gadgetMult); // Аура Свитков Гармонии гасит ярость рейдеров!
+					}
+				}
+			}
 			if (raiderHP > ufo->mMaxHealthPoints) {
 				ufo->mHealthPoints = raiderHP;
 				ufo->mMaxHealthPoints = raiderHP;
 			}
 			return ufo;
 		}
+
 		if (!ownerEmpire) {
 			return ufo;
 		}
@@ -1011,6 +1107,16 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 			int maxCap = GetDynamicMaxTreasuryForEmpire(ownerEmpire, root);
 			int richThreshold = static_cast<int>(round(static_cast<float>(maxCap) * 0.80f));
 			int crisisThreshold = static_cast<int>(round(static_cast<float>(maxCap) * 0.15f));
+			if (ArchetypeUtils::GetBaseArchetype(ownerEmpire->mArchetype) == Archetypes::kArchetypeShaman) {
+				float nexusScaleXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC13, 0.30f);
+				if (nexusScaleXml > 0.01f && IsShamanAstralNexusSevered(ownerEmpire, root)) {
+					customHP *= max(0.45f, 1.0f - nexusScaleXml); // Потеря связи с Родным миром бьет по всем флотам Шамана!
+				}
+				if (GetCurrentContext() == SpaceContext::Planet && GetActivePlanetRecord() &&
+				    GetActivePlanetRecord()->mType == PlanetType::T0) {
+					customHP *= 0.85f; // На мертвом камне T0 духи природы бессильны
+				}
+			}
 
 			if (ownerEmpire->mStars.size() >= 3 && ownerEmpire->mEmpireMoney >= richThreshold) {
 				customHP *= 1.20f;
@@ -1041,6 +1147,7 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 		}
 
 		sIsGeneratingInitialPlanetGarrison = true;
+		sShamanReincarnationsThisBattle = 0;
 		sActiveTradeFreighters.clear();
 		ClearScaledOrbitalShips();
 		original_function(this, planet);
@@ -1187,6 +1294,24 @@ member_detour(GenerateNpcPlanetDefenders__detour, cSimPlanetHighLOD, void(cPlane
 
 				// Гигантский Орбитальный Флагман-Страж (Дредноут), если ИИ построил Убербашню
 				if (npcGadgets.hasUberTurret && gadgetMult > 0.01f) {
+
+					// Астральный Страж «Возвратного билета» Шаманов (телепортируется со Столицы на защиту любой колонии!)
+					float nexusXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC13, 0.30f);
+					if (ArchetypeUtils::GetBaseArchetype(planetEmpire->mArchetype) == Archetypes::kArchetypeShaman &&
+					    nexusXml > 0.01f && !PlanetUtils::Homeworld(pRec) && !IsShamanAstralNexusSevered(planetEmpire, root)) {
+						int* pPolID = &planetEmpire->mPoliticalID;
+						ResourceKey* pKey = &planetEmpire->mUFOKey;
+						cGameDataUFO* astralWarden = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
+							cGameDataUFO*, Args(UfoType, int*, ResourceKey*),
+							Args(UfoType::Defender, pPolID, pKey));
+						if (astralWarden) {
+							float networkHarmony = 1.0f + min(std::sqrt(static_cast<float>(planetEmpire->mStars.size())) * 0.12f, 0.75f);
+							float wardenHP = root->spaceCombatMetrics->GetBomberHealthByEmpire(planetEmpire) * (1.85f * networkHarmony * (nexusXml / 0.30f));
+							astralWarden->mHealthPoints = wardenHP;
+							astralWarden->mMaxHealthPoints = wardenHP;
+							RegisterScaledOrbitalShip(astralWarden, 1.70f, id("spc_rare_glow"));
+						}
+					}		
 					int* pPolID = &planetEmpire->mPoliticalID;
 					ResourceKey* pKey = &planetEmpire->mUFOKey;
 					cGameDataUFO* dreadnought = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)),
@@ -1234,6 +1359,18 @@ static void HandlePlayerToolOnNpcPlanet(cSpaceToolData* pTool)
 	}
 	else if (MatchNpcToolKey(toolId, "raiderrally", "pirateraid", "tool_raiderrally", 0x04668B92, 0x03F3E498)) {
 		sRaiderRallyPanicActive = true;
+	}
+	else if (ArchetypeUtils::GetBaseArchetype(npcEmpire->mArchetype) == Archetypes::kArchetypeShaman &&
+	         (MatchNpcToolKey(toolId, "meteorstrike", "volcano", "drought", 0x04668B70, 0x04668B71) ||
+	          MatchNpcToolKey(toolId, "asteroidcallbutton", "planetbuster", "iceray", 0x03F3E485, 0x03F3E488) ||
+	          MatchNpcToolKey(toolId, "heatray", "coldray", "airvac", 0x04668B72, 0x04668B73))) {
+		float shockSecXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC14, 60.0f);
+		if (nowTime > 0 && shockSecXml > 1.0f) {
+			uint32_t shockMs = static_cast<uint32_t>(round(shockSecXml * 1000.0f));
+			sShamanEcoShockEndTime[cPlanetRecordPtr(activePlanet)] = nowTime + shockMs;
+			sNpcHangarJamCooldowns[cPlanetRecordPtr(activePlanet)] = nowTime + (shockMs / 2); // Шок временно парализует вылет из храмов!
+			sRaiderRallyPanicActive = true;
+		}
 	}
 	else if (!RelationshipManager.IsAtWar(npcEmpire, GetPlayerEmpire()) &&
 	         (MatchNpcToolKey(toolId, "minderase", "globalminderase", "happyray", 0x03F3E491, 0x03F3E481) ||
