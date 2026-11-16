@@ -1127,7 +1127,7 @@ float cSpaceCombatMetrics::GetBomberHealthByEmpire(Simulator::cEmpire* empire)
 	}
 }
 
-float cSpaceCombatMetrics::GetFighterHealthByEmpire(Simulator::cEmpire* empire)
+float cSpaceCombatMetrics::GetTurretHealthByEmpire(Simulator::cEmpire* empire)
 {
 	if (empire == nullptr) return GetFighterHealthByLevel(0);
 	float baseHealth = GetFighterHealthByLevel(empire->GetWeaponryLevel());
@@ -1288,6 +1288,10 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 
 		float weaponLevelBonus = (empire->GetWeaponryLevel() + 1) * 0.6f;
 		baseDefenders = static_cast<int>(round((baseDefenders + weaponLevelBonus) * archetypeMultiplier));
+	}
+	else if (planet->mType == PlanetType::T0 && empire != nullptr &&
+	         ArchetypeUtils::GetBaseArchetype(empire->mArchetype) == Archetypes::kArchetypeEcologist) {
+		baseDefenders = max(1, static_cast<int>(round(static_cast<float>(baseDefenders) * 0.55f)));
 	}
 
 	int standardCities = (planet->mType == PlanetType::T3) ? 3 : ((planet->mType == PlanetType::T2) ? 2 : 1);
