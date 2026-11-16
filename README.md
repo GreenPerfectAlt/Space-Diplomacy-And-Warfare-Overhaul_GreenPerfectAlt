@@ -85,7 +85,7 @@ This mod is **Part 2** of a unified two-mod Space Stage overhaul. **Install BOTH
 ## 📥 Installation & Customization
 
 1. Requires **Spore: Galactic Adventures**, **Spore ModAPI Launcher Kit**, and **UPE**.
-2. Download and install **[Defensive Ships in Player Colonies (`v1.0.9+`)](https://github.com)** first—select your preferred presets for Fleet Scale, Rebellions, Upkeep, Unrest, Gadgets, and Galactic Trade.
+2. Download and install **[Defensive Ships in Player Colonies (`v1.0.9+`)](https://github.com/GreenPerfectAlt/Defensive-Ships-In-Player-Colonies_GreenPerfectAlt)** first—select your preferred presets for Fleet Scale, Rebellions, Upkeep, Unrest, Gadgets, and Galactic Trade.
 3. Download the latest **`Space-Diplomacy-And-Warfare-Overhaul.sporemod`** from **[Releases](../../releases)** and install it via **Spore ModAPI Easy Installer** (configure Active Radius, Bomber Rates, Notifications, etc.).
 4. Launch the game via **Spore ModAPI Launcher**! Fully save-game compatible (starting a new game is optional for initial Affinity modifiers).
 
