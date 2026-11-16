@@ -46,6 +46,7 @@ struct SpecialOrbitalShipVisual {
 
 static bool sIsGeneratingInitialPlanetGarrison = false;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcPlanetUprisingCooldowns;
+static eastl::map<uint32_t, uint32_t> sZealotEmpireSchismEndTime;
 static eastl::map<cPlanetRecordPtr, uint32_t> sNpcHangarJamCooldowns;
 static eastl::set<cGameDataUFO*> sActiveTradeFreighters;
 static eastl::map<cGameDataUFO*, SpecialOrbitalShipVisual> sScaledOrbitalShips;
@@ -520,7 +521,7 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 	}
 
 	Simulator::Archetypes baseArch = ArchetypeUtils::GetBaseArchetype(ownerEmpire->mArchetype);
-	if (baseArch == Archetypes::kArchetypeZealot || baseArch == Archetypes::kArchetypeGrob) {
+	if (baseArch == Archetypes::kArchetypeGrob) {
 		return 0.0f;
 	}
 
@@ -531,6 +532,35 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 
 	float cityUnrest = GetNpcPlanetaryCityUnrestFactor(activePlanet);
 	bool severeCityStrike = (cityUnrest >= 0.45f);
+	SdoPlanetGadgetInfo earlyGadgets = root->spaceCombatMetrics->GetPlanetGadgetInfo(activePlanet);
+
+	// Логика Великого Раскола Фанатиков: 0% в норме, но если подорвана догма (Посольство, стачки или паника) — каскад бунтов по всей империи!
+	bool zealotSchismActive = false;
+	if (baseArch == Archetypes::kArchetypeZealot) {
+		uint32_t nowSpaceTime = (root->persistenceState != nullptr) ? root->persistenceState->GetCurrentSpaceTime() : 0;
+		uint32_t empID = ownerEmpire->GetEmpireID();
+
+		bool dogmaShatteredHere = severeCityStrike || sRaiderRallyPanicActive ||
+			(!peacetimeCheck && earlyGadgets.hasEmbassy) ||
+			(isBankrupt && cityUnrest >= 0.25f);
+
+		if (dogmaShatteredHere && nowSpaceTime > 0) {
+			uint32_t schismDuration = static_cast<uint32_t>(round(360000.0f * rebellionMultiplier));
+			sZealotEmpireSchismEndTime[empID] = nowSpaceTime + schismDuration;
+			zealotSchismActive = true;
+		} else if (nowSpaceTime > 0) {
+			auto itSchism = sZealotEmpireSchismEndTime.find(empID);
+			if (itSchism != sZealotEmpireSchismEndTime.end() && nowSpaceTime < itSchism->second) {
+				zealotSchismActive = true;
+			}
+		} else if (dogmaShatteredHere) {
+			zealotSchismActive = true;
+		}
+
+		if (!zealotSchismActive) {
+			return 0.0f; // Монолитная вера держится — бунтов 0%!
+		}
+	}
 
 	bool heavyLosses = false;
 	if (!peacetimeCheck) {
@@ -539,23 +569,26 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 		const auto& ufos = GetData<cGameDataUFO>();
 		for (const auto& ufo : ufos) {
 			if (ufo && ufo.get() != newlySpawnedUfo && ufo->mHealthPoints > 0 &&
-			    ufo->mPoliticalID == ownerEmpire->GetEmpireID() &&
-			    ufo->mUFOType == static_cast<int>(UfoType::Defender)) {
+				ufo->mPoliticalID == ownerEmpire->GetEmpireID() &&
+				ufo->mUFOType == static_cast<int>(UfoType::Defender)) {
 				aliveDefenders++;
 			}
 		}
 		heavyLosses = (targetDefenders <= 2) ? (aliveDefenders == 0) : (aliveDefenders < (targetDefenders / 2));
 	}
 
-	if (peacetimeCheck) {
-		if (!isBankrupt && !severeCityStrike) return 0.0f;
-		if (PlanetUtils::Homeworld(activePlanet) && !severeCityStrike) return 0.0f;
-	} else {
-		if (!isBankrupt && !heavyLosses && !severeCityStrike) return 0.0f;
+	if (!zealotSchismActive) {
+		if (peacetimeCheck) {
+			if (!isBankrupt && !severeCityStrike) return 0.0f;
+			if (PlanetUtils::Homeworld(activePlanet) && !severeCityStrike) return 0.0f;
+		} else {
+			if (!isBankrupt && !heavyLosses && !severeCityStrike) return 0.0f;
+		}
 	}
 
 	float rebellionChance = 0.25f;
-	if (baseArch == Archetypes::kArchetypeWarrior) rebellionChance = 0.50f;
+	if (zealotSchismActive) rebellionChance = 0.55f; // Цепной каскад религиозного раскола по всем планетам секты!
+	else if (baseArch == Archetypes::kArchetypeWarrior) rebellionChance = 0.50f;
 	else if (baseArch == Archetypes::kArchetypeTrader) rebellionChance = 0.40f;
 	else if (baseArch == Archetypes::kArchetypeScientist || baseArch == Archetypes::kArchetypeEcologist) rebellionChance = 0.15f;
 	else if (baseArch == Archetypes::kArchetypeDiplomat || baseArch == Archetypes::kArchetypeBard || baseArch == Archetypes::kArchetypeShaman) rebellionChance = 0.20f;
