@@ -192,28 +192,70 @@ static void ProcessBackgroundGalacticRevolutions(int deltaGameTime)
 		}
 
 		// 2. Если империя в глубоком банкротстве или Расколе — шанс реального откола окраинной системы на карте галактики!
+		// 2. Рождение новой независимой империи того же вида (Гражданская война / Сепаратизм)!
 		float secessionChance = (bankrupt || inZealotSchism) ? (0.30f * rebMult) : 0.0f;
 		if (static_cast<int>(targetEmp->mStars.size()) >= minStarsForSecession && Math::randf() < secessionChance) {
 			cStarRecord* rebelStar = rebelPlanet->GetStarRecord();
-			// Ищем ближайшую молодую/соседнюю империю, к которой переметнутся сепаратисты (либо врага метрополии)
-			eastl::vector<cStarRecordPtr> nearRebel;
-			StarRequestFilter secFilter = filter;
-			secFilter.maxDistance = 18.0f;
-			StarManager.FindStars(rebelStar->mPosition, secFilter, nearRebel);
 
-			cEmpire* newMaster = nullptr;
-			for (const auto& ns : nearRebel) {
-				if (!ns || ns->mEmpireID == 0 || ns->mEmpireID == targetEmp->GetEmpireID()) continue;
-				cEmpire* cand = StarManager.GetEmpire(ns->mEmpireID);
-				if (cand && cand != playerEmp && ArchetypeUtils::GetBaseArchetype(cand->mArchetype) != Archetypes::kArchetypeGrob) {
-					newMaster = cand;
-					if (RelationshipManager.IsAtWar(targetEmp, cand)) break;
+			// Отвязываем мятежную систему от старой метрополии
+			for (auto itSt = targetEmp->mStars.begin(); itSt != targetEmp->mStars.end(); ++itSt) {
+				if (itSt->get() == rebelStar) {
+					targetEmp->mStars.erase(itSt);
+					break;
 				}
 			}
+			rebelStar->mEmpireID = 0;
 
-			if (newMaster != nullptr && root->warfareSystem != nullptr) {
-				StarManager.RequireEmpireForStar(rebelStar, newMaster);
-				RelationshipManager.DeclareWar(targetEmp, newMaster);
+			// Рождаем новую фракцию прямо на отколовшейся звезде через нативный StarManager.EmpireForStar!
+			cEmpire* rebelEmpire = StarManager.EmpireForStar(rebelStar);
+			if (rebelEmpire != nullptr && rebelEmpire != targetEmp) {
+				// 1. Тот же биологический вид и та же моделька корабля, что у родины!
+				if (targetEmp->GetSpeciesProfile() != nullptr) {
+					rebelEmpire->SetSpeciesProfile(targetEmp->GetSpeciesProfile());
+				}
+				rebelEmpire->mUFOKey = targetEmp->mUFOKey;
+				rebelEmpire->mHomePlanet = PlanetID(rebelPlanet->GetID().internalValue);
+				rebelEmpire->mHomeStar = rebelStar->GetID();
+
+				bool starLinked = false;
+				for (const auto& rs : rebelEmpire->mStars) {
+					if (rs.get() == rebelStar) { starLinked = true; break; }
+				}
+				if (!starLinked) {
+					rebelEmpire->mStars.push_back(cStarRecordPtr(rebelStar));
+				}
+
+				// 2. Революционная смена идеологии (оппозиционная философия!)
+				Archetypes newArch = Archetypes::kArchetypeWarrior;
+				int roll = Math::rand(3);
+				if (arch == Archetypes::kArchetypeZealot) {
+					const Archetypes zealotSplit[3] = { Archetypes::kArchetypeScientist, Archetypes::kArchetypeWarrior, Archetypes::kArchetypeBard };
+					newArch = zealotSplit[roll];
+				} else if (arch == Archetypes::kArchetypeWarrior) {
+					const Archetypes warriorSplit[3] = { Archetypes::kArchetypeTrader, Archetypes::kArchetypeDiplomat, Archetypes::kArchetypeShaman };
+					newArch = warriorSplit[roll];
+				} else if (arch == Archetypes::kArchetypeTrader) {
+					const Archetypes traderSplit[3] = { Archetypes::kArchetypeWarrior, Archetypes::kArchetypeEcologist, Archetypes::kArchetypeZealot };
+					newArch = traderSplit[roll];
+				} else if (arch == Archetypes::kArchetypeScientist) {
+					const Archetypes sciSplit[3] = { Archetypes::kArchetypeShaman, Archetypes::kArchetypeEcologist, Archetypes::kArchetypeBard };
+					newArch = sciSplit[roll];
+				} else if (arch == Archetypes::kArchetypeEcologist) {
+					const Archetypes ecoSplit[3] = { Archetypes::kArchetypeTrader, Archetypes::kArchetypeWarrior, Archetypes::kArchetypeScientist };
+					newArch = ecoSplit[roll];
+				} else {
+					const Archetypes generalSplit[3] = { Archetypes::kArchetypeWarrior, Archetypes::kArchetypeTrader, Archetypes::kArchetypeZealot };
+					newArch = generalSplit[roll];
+				}
+				rebelEmpire->mArchetype = newArch;
+
+				// 3. Стартовый капитал молодой республики и война за независимость против метрополии!
+				rebelEmpire->mEmpireMoney = max(maxCap / 4, 35000);
+				RelationshipManager.DeclareWar(targetEmp, rebelEmpire);
+			} else {
+				// Страховка на случай лимита пула: возвращаем звезду обратно без потерь
+				rebelStar->mEmpireID = targetEmp->GetEmpireID();
+				targetEmp->mStars.push_back(cStarRecordPtr(rebelStar));
 			}
 		}
 
