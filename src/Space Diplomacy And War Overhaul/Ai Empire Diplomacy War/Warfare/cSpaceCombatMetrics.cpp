@@ -1037,6 +1037,19 @@ float cSpaceCombatMetrics::GetBomberHealthByEmpire(Simulator::cEmpire* empire)
 	case Archetypes::kArchetypeBard:
 	case Archetypes::kArchetypeDiplomat:
 		return baseHealth * (1.0f - (0.20f * (1.0f - levelFactor * 0.5f)));
+	case Archetypes::kArchetypeShaman: {
+		cStarRecord* homeSt = EmpireUtils::GetHomeStar(empire);
+		bool homeSevered = (!homeSt || homeSt->mEmpireID != empire->GetEmpireID() || IsStarBlockaded(homeSt));
+		if (homeSevered) {
+			float nexusPenalty = 0.30f;
+			PropertyListPtr gProp;
+			if (PropManager.GetPropertyList(id(u"GadgetConfig"), 0x02ae0c7e, gProp) && gProp != nullptr) {
+				App::Property::GetFloat(gProp.get(), 0x07A1BC13, nexusPenalty);
+			}
+			return baseHealth * max(0.45f, 1.0f - nexusPenalty);
+		}
+		return baseHealth;
+	}
 	default:
 		return baseHealth;
 	}
@@ -1206,6 +1219,37 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 	}
 	if (gadgets.hasSpiceStorage) {
 		baseDefenders = static_cast<int>(round(static_cast<float>(baseDefenders) * (1.0f + 0.25f * GetExternalGadgetMultiplier())));
+	}
+
+	// В фоновых войнах НПС <-> НПС на карте галактики учитываем Астрального Стража и пул Реинкарнации Шаманов!
+	// (В 3D на самой планете не плюсуем в общий лимит, так как Страж и перерождения спавнятся там отдельно со спецэффектами)
+	if (GetCurrentContext() != SpaceContext::Planet && empire != nullptr &&
+	    ArchetypeUtils::GetBaseArchetype(empire->mArchetype) == Archetypes::kArchetypeShaman &&
+	    GetExternalGadgetMultiplier() > 0.01f) {
+
+		cStarRecord* homeSt = EmpireUtils::GetHomeStar(empire);
+		bool homeSevered = (!homeSt || homeSt->mEmpireID != empire->GetEmpireID() || IsStarBlockaded(homeSt));
+		if (!homeSevered && planet->mType != PlanetType::T0) {
+			float reincXml = 0.38f;
+			float nexusXml = 0.30f;
+			PropertyListPtr gProp;
+			if (PropManager.GetPropertyList(id(u"GadgetConfig"), 0x02ae0c7e, gProp) && gProp != nullptr) {
+				App::Property::GetFloat(gProp.get(), 0x07A1BC12, reincXml);
+				App::Property::GetFloat(gProp.get(), 0x07A1BC13, nexusXml);
+			}
+
+			// 1. Эквивалент телепортирующегося со Столицы Астрального Стража (~2-3 обычных защитника)
+			int astralWardenEquiv = (!PlanetUtils::Homeworld(planet) && nexusXml > 0.01f)
+				? max(1, static_cast<int>(round(2.0f * (nexusXml / 0.30f))))
+				: 0;
+
+			// 2. Математическое ожидание числа воскресших кораблей на живой биосфере (T1..T3)
+			int tVal = (planet->mType == PlanetType::T3) ? 3 : ((planet->mType == PlanetType::T2) ? 2 : 1);
+			float gaiaFactor = std::pow(static_cast<float>(tVal) / 3.0f, 1.25f) * (gadgets.hasBioProtector ? 1.25f : 1.0f);
+			int expectedRebirths = static_cast<int>(round(static_cast<float>(baseDefenders) * reincXml * gaiaFactor * 0.65f));
+
+			baseDefenders += (astralWardenEquiv + expectedRebirths);
+		}
 	}
 	return baseDefenders;
 }
