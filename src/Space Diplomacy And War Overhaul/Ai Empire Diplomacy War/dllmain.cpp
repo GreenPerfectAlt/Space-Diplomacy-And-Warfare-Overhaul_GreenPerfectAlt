@@ -1021,7 +1021,8 @@ static float ComputeNpcPlanetRebellionChance(cPlanetRecord* activePlanet, cEmpir
 	float subversionFactor = 1.0f;
 	if (!peacetimeCheck && root->empireRelationsAnalyzer && GetPlayerEmpire() && ownerEmpire != GetPlayerEmpire()) {
 		int affinityWithPlayer = root->empireRelationsAnalyzer->EmpiresAffinity(ownerEmpire, GetPlayerEmpire())
-		                       + root->spaceCombatMetrics->GetTradeAffinityBonus(ownerEmpire, GetPlayerEmpire());
+		                       + root->spaceCombatMetrics->GetTradeAffinityBonus(ownerEmpire, GetPlayerEmpire())
+		                       + root->spaceCombatMetrics->GetEcologistEcoAffinityModifier(ownerEmpire, GetPlayerEmpire());
 		if (affinityWithPlayer >= 2) subversionFactor = 1.25f;
 		else if (affinityWithPlayer == 1) subversionFactor = 1.10f;
 		else if (affinityWithPlayer <= -2) subversionFactor = 0.85f;
