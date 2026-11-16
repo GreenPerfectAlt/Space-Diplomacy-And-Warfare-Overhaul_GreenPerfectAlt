@@ -69,21 +69,29 @@ This mod is **Part 2** of a unified two-mod Space Stage overhaul. **Install BOTH
 
 ---
 
-
 ## 🤝 Core Diplomacy, Affinity & Cluster Warfare
 
-• Affinity System: Diplomacy revolves around philosophical compatibility, shared allies (+1), common enemies (+2), monolith uplifting (+2), active Trade Networks (+1 to +2), and long-standing alliances (+2).
-• Coherent Frontlines & Invasion Call: AI empires attack contiguous border stars rather than jumping randomly across space, sizing bomber fleets against real planetary defenses (including cached Unlimited-Colony cities and Uber Turrets!). Players can summon allied strike fleets via the dynamically priced Invasion Call tool.
-• 40-Minute Truces & War Warnings: Empires preparing war notify the player in advance (avoidable by raising relations above +30), and peace treaties enforce 40-minute bloc truces.
+* **Affinity System:** Diplomacy revolves around philosophical compatibility, shared allies (`+1`), common enemies (`+2`), monolith uplifting (`+2`), active **Trade Networks (`+1` to `+2`)**, and long-standing alliances (`+2`).
+* **Coherent Frontlines & Invasion Call:** AI empires attack contiguous border stars rather than jumping randomly across space, sizing bomber fleets against real planetary defenses (including cached **Unlimited-Colony** cities and **Uber Turrets**!). Players can summon allied strike fleets via the dynamically priced **Invasion Call** tool.
+* **40-Minute Truces & War Warnings:** Empires preparing war notify the player in advance (avoidable by raising relations above `+30`), and peace treaties enforce 40-minute bloc truces.
+
+![Affinity Interface](images/AffinityTooltip.png)
+![Diplomacy Notifications](images/DiplomacyNotifications.png)
+![Allies and Enemies View](images/AiAlliesEnemies.png)
+![Invasion Call Summon](images/InvasionCallPlanet.png)
+
+---
 
 ## 📥 Installation & Customization
 
-1. Requires Spore: Galactic Adventures, Spore ModAPI Launcher Kit, and UPE.
-2. Download and install Defensive Ships in Player Colonies (v1.0.9+) first—select your preferred presets for Fleet Scale, Rebellions, Upkeep, Unrest, Gadgets, and Galactic Trade.
-3. Download the latest Space-Diplomacy-And-Warfare-Overhaul.sporemod from Releases and install it via Spore ModAPI Easy Installer (configure Active Radius, Bomber Rates, Notifications, etc.).
-4. Launch the game via Spore ModAPI Launcher! Fully save-game compatible (starting a new game is optional for initial Affinity modifiers).
+1. Requires **Spore: Galactic Adventures**, **Spore ModAPI Launcher Kit**, and **UPE**.
+2. Download and install **[Defensive Ships in Player Colonies (`v1.0.9+`)](https://github.com)** first—select your preferred presets for Fleet Scale, Rebellions, Upkeep, Unrest, Gadgets, and Galactic Trade.
+3. Download the latest **`Space-Diplomacy-And-Warfare-Overhaul.sporemod`** from **[Releases](../../releases)** and install it via **Spore ModAPI Easy Installer** (configure Active Radius, Bomber Rates, Notifications, etc.).
+4. Launch the game via **Spore ModAPI Launcher**! Fully save-game compatible (starting a new game is optional for initial Affinity modifiers).
 
-📜 Credits
+---
 
-• Original Space Diplomacy & Warfare Overhaul architecture and UI assets by Sadicto.
-• 4X Treasury Economy, Galactic Trade Network, 3D Convoys, Philosophy Asymmetry, Gadget AI, Save Persistence, and Galactic Secession Overhaul by GreenPerfectAlt.
+## 📜 Credits
+
+* Original *Space Diplomacy & Warfare Overhaul* architecture and UI assets by **Sadicto**.
+* 4X Treasury Economy, Galactic Trade Network, 3D Convoys, Philosophy Asymmetry, Gadget AI, Save Persistence, and Galactic Secession Overhaul by **GreenPerfectAlt**.
