@@ -7,9 +7,7 @@
   hasCustomInstaller="true"
   installerSystemVersion="1.0.1.2"
   isExperimental="$SPOREMOD_EXPERIMENTAL"
-  unique="SpaceDiplomacyAndWarfareOverhaul"
-  websiteUrl="https://github.com/GreenPerfectAlt/Space-Diplomacy-And-Warfare-Overhaul_GreenPerfectAlt">
-
+  unique="SpaceDiplomacyAndWarfareOverhaul">
 
 	<!-- RadiusConfig -->
 	<componentGroup displayName="Active Radius" unique="Space-Diplomacy-And-Warfare-Overhaul_Radius_Config">
@@ -72,118 +70,97 @@
 		<component game="GalacticAdventures" displayName="None" description="Disables all war notifications." unique="SpaceDiplomacyAndWarOverhaul_WarNotificationsNone_Config" defaultChecked="false">Space-Diplomacy-Overhaul_WarNotificationsNone_Config.package</component>
 	</componentGroup>
 
-	<!-- Space Combat -->
-	<componentGroup displayName="Space Combat" unique="Space-Warfare-Overhaul_SpaceCombat_Config">
-		<component game="GalacticAdventures" displayName="No Rally-Call Rebalanced Combat" description="Rebalanced combat values without the rally-call tool." unique="SpaceWarfareOverhaul_NoRallyRebalancedCombat_Config" defaultChecked="true">Space-Warfare-Overhaul_NoRallyRebalancedCombatSpaceBalancing_Module.package</component>
-		<component game="GalacticAdventures" displayName="Rebalanced Combat" description="Uses rebalanced combat values for space combat." unique="SpaceWarfareOverhaul_RebalancedCombat_Config" defaultChecked="false">Space-Warfare-Overhaul_RebalancedCombatSpaceBalancing_Module.package</component>
-		<component game="GalacticAdventures" displayName="Vanilla Combat" description="Keeps vanilla combat balance." unique="SpaceWarfareOverhaul_VanillaCombat_Config" defaultChecked="false">Space-Warfare-Overhaul_VanillaCombatSpaceBalancing_Module.package</component>
+	<!-- Space Combat Balancing -->
+	<componentGroup displayName="Space Combat Balancing" unique="Space-Warfare-Overhaul_CombatSpaceBalancing_Config">
+		<component game="GalacticAdventures" displayName="Rebalanced Combat (No Raider Rally)" description="Rebalances space combat and disables the Raider Rally tool." unique="SpaceWarfareOverhaul_NoRallyRebalancedCombatSpaceBalancing_Module" defaultChecked="false">Space-Warfare-Overhaul_NoRallyRebalancedCombatSpaceBalancing_Module.package</component>
+		<component game="GalacticAdventures" displayName="Rebalanced Combat" description="Rebalances space combat health and turrets for 4X warfare." unique="SpaceWarfareOverhaul_RebalancedCombatSpaceBalancing_Module" defaultChecked="true">Space-Warfare-Overhaul_RebalancedCombatSpaceBalancing_Module.package</component>
+		<component game="GalacticAdventures" displayName="Vanilla-like Combat" description="Keeps space combat stats closer to vanilla Spore." unique="SpaceWarfareOverhaul_VanillaCombatSpaceBalancing_Module" defaultChecked="false">Space-Warfare-Overhaul_VanillaCombatSpaceBalancing_Module.package</component>
 	</componentGroup>
 
-	<!-- Bomber Production Rate -->
-	<componentGroup displayName="AI Bomber Production Rate" unique="Space-Warfare-Overhaul_BomberRate_Config">
-		<component game="GalacticAdventures" displayName="0.15x" description="AI produces bombers at 15% of the base rate." unique="SpaceWarfareOverhaul_0.15BomberRate_Config" defaultChecked="false">Space-Warfare-Overhaul_0.15AIBomberProductionRate_Config.package</component>
-		<component game="GalacticAdventures" displayName="0.30x" description="AI produces bombers at 30% of the base rate." unique="SpaceWarfareOverhaul_0.30BomberRate_Config" defaultChecked="false">Space-Warfare-Overhaul_0.30AIBomberProductionRate_Config.package</component>
-		<component game="GalacticAdventures" displayName="0.50x" description="AI produces bombers at 50% of the base rate." unique="SpaceWarfareOverhaul_0.50BomberRate_Config" defaultChecked="false">Space-Warfare-Overhaul_0.50AIBomberProductionRate_Config.package</component>
-		<component game="GalacticAdventures" displayName="0.80x" description="AI produces bombers at 80% of the base rate." unique="SpaceWarfareOverhaul_0.80BomberRate_Config" defaultChecked="false">Space-Warfare-Overhaul_0.80AIBomberProductionRate_Config.package</component>
-		<component game="GalacticAdventures" displayName="1x" description="AI produces bombers at normal rate." unique="SpaceWarfareOverhaul_1BomberRate_Config" defaultChecked="true">Space-Warfare-Overhaul_1AIBomberProductionRate_Config.package</component>
-		<component game="GalacticAdventures" displayName="1.5x" description="AI produces bombers 50% faster." unique="SpaceWarfareOverhaul_1.5BomberRate_Config" defaultChecked="false">Space-Warfare-Overhaul_1.5AIBomberProductionRate_Config.package</component>
-		<component game="GalacticAdventures" displayName="2x" description="AI produces bombers twice as fast." unique="SpaceWarfareOverhaul_2BomberRate_Config" defaultChecked="false">Space-Warfare-Overhaul_2AIBomberProductionRate_Config.package</component>
-		<component game="GalacticAdventures" displayName="4x" description="AI produces bombers four times as fast." unique="SpaceWarfareOverhaul_4BomberRate_Config" defaultChecked="false">Space-Warfare-Overhaul_4AIBomberProductionRate_Config.package</component>
+	<!-- AI Bomber Production Rate -->
+	<componentGroup displayName="AI Bomber Production Rate" unique="Space-Warfare-Overhaul_AIBomberProductionRate_Config">
+		<component game="GalacticAdventures" displayName="0.15x" description="AI empires produce 0.15x bombers per spice factory." unique="SpaceWarfareOverhaul_0.15AIBomberProductionRate_Config" defaultChecked="false">Space-Warfare-Overhaul_0.15AIBomberProductionRate_Config.package</component>
+		<component game="GalacticAdventures" displayName="0.30x" description="AI empires produce 0.30x bombers per spice factory." unique="SpaceWarfareOverhaul_0.30AIBomberProductionRate_Config" defaultChecked="false">Space-Warfare-Overhaul_0.30AIBomberProductionRate_Config.package</component>
+		<component game="GalacticAdventures" displayName="0.50x" description="AI empires produce 0.50x bombers per spice factory." unique="SpaceWarfareOverhaul_0.50AIBomberProductionRate_Config" defaultChecked="false">Space-Warfare-Overhaul_0.50AIBomberProductionRate_Config.package</component>
+		<component game="GalacticAdventures" displayName="0.80x" description="AI empires produce 0.80x bombers per spice factory." unique="SpaceWarfareOverhaul_0.80AIBomberProductionRate_Config" defaultChecked="false">Space-Warfare-Overhaul_0.80AIBomberProductionRate_Config.package</component>
+		<component game="GalacticAdventures" displayName="1.0x (Default)" description="Standard AI bomber production rate." unique="SpaceWarfareOverhaul_1AIBomberProductionRate_Config" defaultChecked="true">Space-Warfare-Overhaul_1AIBomberProductionRate_Config.package</component>
+		<component game="GalacticAdventures" displayName="1.5x" description="AI empires produce 1.5x bombers per spice factory." unique="SpaceWarfareOverhaul_1.5AIBomberProductionRate_Config" defaultChecked="false">Space-Warfare-Overhaul_1.5AIBomberProductionRate_Config.package</component>
+		<component game="GalacticAdventures" displayName="2.0x" description="AI empires produce 2.0x bombers per spice factory." unique="SpaceWarfareOverhaul_2AIBomberProductionRate_Config" defaultChecked="false">Space-Warfare-Overhaul_2AIBomberProductionRate_Config.package</component>
+		<component game="GalacticAdventures" displayName="4.0x" description="AI empires produce 4.0x bombers per spice factory." unique="SpaceWarfareOverhaul_4AIBomberProductionRate_Config" defaultChecked="false">Space-Warfare-Overhaul_4AIBomberProductionRate_Config.package</component>
 	</componentGroup>
 
 	<!-- Player Bomber Cost -->
-	<componentGroup displayName="Player Bomber Cost" unique="Space-Warfare-Overhaul_PlayerBomberCost_Config">
-		<component game="GalacticAdventures" displayName="20.000 Cost" description="Each bomber costs 20,000 Sporebucks." unique="SpaceWarfareOverhaul_20PlayerBomberCost_Config" defaultChecked="false">Space-Warfare-Overhaul_20PlayerBomberCost_Config.package</component>
-		<component game="GalacticAdventures" displayName="50.000 Cost" description="Each bomber costs 50,000 Sporebucks." unique="SpaceWarfareOverhaul_50PlayerBomberCost_Config" defaultChecked="false">Space-Warfare-Overhaul_50PlayerBomberCost_Config.package</component>
-		<component game="GalacticAdventures" displayName="75.000 Cost" description="Each bomber costs 75,000 Sporebucks." unique="SpaceWarfareOverhaul_75PlayerBomberCost_Config" defaultChecked="true">Space-Warfare-Overhaul_75PlayerBomberCost_Config.package</component>
-		<component game="GalacticAdventures" displayName="100.000 Cost" description="Each bomber costs 100,000 Sporebucks." unique="SpaceWarfareOverhaul_100PlayerBomberCost_Config" defaultChecked="false">Space-Warfare-Overhaul_100PlayerBomberCost_Config.package</component>
-		<component game="GalacticAdventures" displayName="150.000 Cost" description="Each bomber costs 150,000 Sporebucks." unique="SpaceWarfareOverhaul_150PlayerBomberCost_Config" defaultChecked="false">Space-Warfare-Overhaul_150PlayerBomberCost_Config.package</component>
+	<componentGroup displayName="Player Invasion Bomber Cost" unique="Space-Warfare-Overhaul_PlayerBomberCost_Config">
+		<component game="GalacticAdventures" displayName="20,000 Sporebucks" description="Each invasion bomber costs 20,000 Sporebucks." unique="SpaceWarfareOverhaul_20PlayerBomberCost_Config" defaultChecked="false">Space-Warfare-Overhaul_20PlayerBomberCost_Config.package</component>
+		<component game="GalacticAdventures" displayName="50,000 Sporebucks" description="Each invasion bomber costs 50,000 Sporebucks." unique="SpaceWarfareOverhaul_50PlayerBomberCost_Config" defaultChecked="false">Space-Warfare-Overhaul_50PlayerBomberCost_Config.package</component>
+		<component game="GalacticAdventures" displayName="75,000 Sporebucks (Default)" description="Each invasion bomber costs 75,000 Sporebucks." unique="SpaceWarfareOverhaul_75PlayerBomberCost_Config" defaultChecked="true">Space-Warfare-Overhaul_75PlayerBomberCost_Config.package</component>
+		<component game="GalacticAdventures" displayName="100,000 Sporebucks" description="Each invasion bomber costs 100,000 Sporebucks." unique="SpaceWarfareOverhaul_100PlayerBomberCost_Config" defaultChecked="false">Space-Warfare-Overhaul_100PlayerBomberCost_Config.package</component>
+		<component game="GalacticAdventures" displayName="150,000 Sporebucks" description="Each invasion bomber costs 150,000 Sporebucks." unique="SpaceWarfareOverhaul_150PlayerBomberCost_Config" defaultChecked="false">Space-Warfare-Overhaul_150PlayerBomberCost_Config.package</component>
 	</componentGroup>
 
-	<!-- Hostile Archetype Buffs -->
-	<componentGroup displayName="Hostile Archetype Buffs" unique="Space-Warfare-Overhaul_ArchetypeBuffs_Config">
-		<component game="GalacticAdventures" displayName="No Buffs" description="Hostile archetypes get no buffs." unique="SpaceWarfareOverhaul_NoBuffHostile_Config" defaultChecked="true">Space-Warfare-Overhaul_NoBuffHostileArchetypes_Config.package</component>
-		<component game="GalacticAdventures" displayName="Slight Buff" description="Hostile archetypes get small buffs." unique="SpaceWarfareOverhaul_SlightBuffHostile_Config" defaultChecked="false">Space-Warfare-Overhaul_SlightBuffHostileArchetypes_Config.package</component>
-		<component game="GalacticAdventures" displayName="High Buff" description="Hostile archetypes get significant buffs." unique="SpaceWarfareOverhaul_HighBuffHostile_Config" defaultChecked="false">Space-Warfare-Overhaul_HighBuffHostileArchetypes_Config.package</component>
-		<component game="GalacticAdventures" displayName="Extreme Buff" description="Hostile archetypes get extreme buffs." unique="SpaceWarfareOverhaul_ExtremeBuffHostile_Config" defaultChecked="false">Space-Warfare-Overhaul_ExtremeBuffHostileArchetypes_Config.package</component>
+	<!-- Hostile Archetypes Buff -->
+	<componentGroup displayName="Hostile Archetypes Production Buff" unique="Space-Warfare-Overhaul_BuffHostileArchetypes_Config">
+		<component game="GalacticAdventures" displayName="None" description="No production buff for hostile archetypes." unique="SpaceWarfareOverhaul_NoBuffHostileArchetypes_Config" defaultChecked="false">Space-Warfare-Overhaul_NoBuffHostileArchetypes_Config.package</component>
+		<component game="GalacticAdventures" displayName="Slight Buff" description="Slight bomber production buff for hostile archetypes." unique="SpaceWarfareOverhaul_SlightBuffHostileArchetypes_Config" defaultChecked="true">Space-Warfare-Overhaul_SlightBuffHostileArchetypes_Config.package</component>
+		<component game="GalacticAdventures" displayName="High Buff" description="High bomber production buff for hostile archetypes." unique="SpaceWarfareOverhaul_HighBuffHostileArchetypes_Config" defaultChecked="false">Space-Warfare-Overhaul_HighBuffHostileArchetypes_Config.package</component>
+		<component game="GalacticAdventures" displayName="Extreme Buff" description="Extreme bomber production buff for hostile archetypes." unique="SpaceWarfareOverhaul_ExtremeBuffHostileArchetypes_Config" defaultChecked="false">Space-Warfare-Overhaul_ExtremeBuffHostileArchetypes_Config.package</component>
 	</componentGroup>
 
-	<!-- Warrior/Zealot Buffs -->
-	<componentGroup displayName="Warrior and Zealot Buffs" unique="Space-Warfare-Overhaul_WarriorZealotBuffs_Config">
-		<component game="GalacticAdventures" displayName="Enabled" description="Warrior and Zealot empires gain additional buffs." unique="SpaceWarfareOverhaul_BuffWarriorsZealots_Config" defaultChecked="false">Space-Warfare-Overhaul_BuffWarriorsZealots_Config.package</component>
-		<component game="GalacticAdventures" displayName="Disabled" description="Warrior and Zealot empires have no additional buffs." unique="SpaceWarfareOverhaul_NoBuffWarriorsZealots_Config" defaultChecked="true">Space-Warfare-Overhaul_NoBuffWarriorsZealots_Config.package</component>
+	<!-- Buff Warriors and Zealots -->
+	<componentGroup displayName="Buff Warriors and Zealots" unique="Space-Warfare-Overhaul_BuffWarriorsZealots_Group">
+		<component game="GalacticAdventures" displayName="Yes" description="Warriors and Zealots receive additional military buffs." unique="SpaceWarfareOverhaul_BuffWarriorsZealots_Config" defaultChecked="true">Space-Warfare-Overhaul_BuffWarriorsZealots_Config.package</component>
+		<component game="GalacticAdventures" displayName="No" description="No additional military buffs for Warriors and Zealots." unique="SpaceWarfareOverhaul_NoBuffWarriorsZealots_Config" defaultChecked="false">Space-Warfare-Overhaul_NoBuffWarriorsZealots_Config.package</component>
 	</componentGroup>
 
-	<!-- SAIC Patch -->
-	<componentGroup displayName="SAIC Patch" unique="Space-Diplomacy-And-War-Overhaul_SAIC_Config">
-		<component game="GalacticAdventures" displayName="Enabled" description="Applies compatibility patch with Sensible AI Colonization." unique="SpaceDiplomacyAndWarOverhaul_SAICPatch_Config" defaultChecked="false">Space-Diplomacy-Overhaul_SaicPatch_Config.package</component>
-		<component game="GalacticAdventures" displayName="Disabled" description="No compatibility patch applied." unique="SpaceDiplomacyAndWarOverhaul_NoSAICPatch_Config" defaultChecked="true">Space-Diplomacy-Overhaul_NoSaicPatch_Config.package</component>
+	<!-- SAIC Compatibility Patch -->
+	<componentGroup displayName="Sensible AI Colonization (SAIC) Patch" unique="Space-Diplomacy-Overhaul_SaicPatch_Group">
+		<component game="GalacticAdventures" displayName="Enabled" description="Enable compatibility tuning for Sensible AI Colonization." unique="SpaceDiplomacyAndWarOverhaul_SaicPatch_Config" defaultChecked="false">Space-Diplomacy-Overhaul_SaicPatch_Config.package</component>
+		<component game="GalacticAdventures" displayName="Disabled" description="Standard colonization balance (use if SAIC is not installed)." unique="SpaceDiplomacyAndWarOverhaul_NoSaicPatch_Config" defaultChecked="true">Space-Diplomacy-Overhaul_NoSaicPatch_Config.package</component>
 	</componentGroup>
 
-	<!-- Main -->
+	<!-- Core Prerequisites -->
 	<prerequisite game="GalacticAdventures">Space-Diplomacy-Overhaul_Main.package</prerequisite>
 	<prerequisite game="GalacticAdventures">Space-Warfare-Overhaul_Main.package</prerequisite>
 	<prerequisite>Ai Empire Diplomacy War.dll</prerequisite>
 
+	<!-- Clean Removal -->
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_Main.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_Main.package</remove>
 	<remove>Ai Empire Diplomacy War.dll</remove>
-
-	<!-- RadiusConfig -->
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_40Radius_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_60Radius_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_100Radius_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_200Radius_Config.package</remove>
-
-	<!-- Active Range Center -->
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_HomeworldActiveRangeReference_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_CurrentPositionActiveRangeReference_Config.package</remove>
-
-	<!-- Ignore Other Players' Empires -->
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_OnlyPlayersInvalidationDepth_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_DirectRelationsInvalidationDepth_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_IndirectRelationsInvalidationDepth_Config.package</remove>
-
-	<!-- Alliance Notifications -->
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_AllianceNotificationsAll_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_AllianceNotificationsAllies_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_AllianceNotificationsEnemies_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_AllianceNotificationsAlliesAndEnemies_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_AllianceNotificationsNone_Config.package</remove>
-
-	<!-- Alliance Break Notifications -->
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_AllianceBreakNotificationsAll_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_AllianceBreakNotificationsAllies_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_AllianceBreakNotificationsEnemies_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_AllianceBreakNotificationsAlliesAndEnemies_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_AllianceBreakNotificationsNone_Config.package</remove>
-
-	<!-- War Notifications -->
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_WarNotificationsAll_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_WarNotificationsAllies_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_WarNotificationsEnemies_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_WarNotificationsAlliesAndEnemies_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_WarNotificationsNone_Config.package</remove>
-
-	<!-- Aggressiveness -->
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_LowAgressiveness_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_NormalAgressiveness_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_HighAgressiveness_Config.package</remove>
-
-	<!-- Effects -->
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_IntendedEffects_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_Vanilla-LikeEffects_Config.package</remove>
-
-	<!-- SAIC Patch -->
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_SaicPatch_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Diplomacy-Overhaul_NoSaicPatch_Config.package</remove>
-
-	<!-- Warfare Config -->
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_RebalancedCombatSpaceBalancing_Module.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_VanillaCombatSpaceBalancing_Module.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_NoRallyRebalancedCombatSpaceBalancing_Module.package</remove>
-
-	<!-- AI Bomber Production Rate -->
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_0.15AIBomberProductionRate_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_0.30AIBomberProductionRate_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_0.50AIBomberProductionRate_Config.package</remove>
@@ -192,23 +169,15 @@
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_1.5AIBomberProductionRate_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_2AIBomberProductionRate_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_4AIBomberProductionRate_Config.package</remove>
-
-	<!-- Player Bomber Cost -->
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_20PlayerBomberCost_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_50PlayerBomberCost_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_75PlayerBomberCost_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_100PlayerBomberCost_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_150PlayerBomberCost_Config.package</remove>
-
-	<!-- Archetype Buffs -->
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_NoBuffHostileArchetypes_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_SlightBuffHostileArchetypes_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_HighBuffHostileArchetypes_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_ExtremeBuffHostileArchetypes_Config.package</remove>
-
-	<!-- Warrior/Zealot Buffs -->
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_BuffWarriorsZealots_Config.package</remove>
 	<remove game="GalacticAdventures">Space-Warfare-Overhaul_NoBuffWarriorsZealots_Config.package</remove>
-
-
 </mod>
