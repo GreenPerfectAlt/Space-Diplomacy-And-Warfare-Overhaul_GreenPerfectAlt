@@ -40,6 +40,13 @@ This mod is **Part 2** of a unified two-mod Space Stage overhaul. **Install BOTH
 * **Live Galaxy-Map Uprisings:** Overextended superpowers (`6+` stars by default, configurable via XML) suffering bankruptcy or ideological collapse face real frontier revolutions in the background without requiring player visits.
 * **Native SOS Distress Signals:** Triggers genuine Spore emergency alerts (`RaidPlunderEvent`) in the top-left HUD when allied or neighboring colonies erupt into revolt—intervene for reputation or let them burn!
 * **Secession & Breakaway Republics:** If a bankrupt giant fails to contain a revolt on an unfortified frontier star (no **Loyalty Booster**), that star **secedes into a brand-new independent empire**! The breakaway republic retains its parent species and ship model (`mUFOKey`), adopts an opposing revolutionary philosophy, receives starting capital, and immediately fights a **War of Independence** against its former master! *(Small empires are 100% protected from collapse).*
+* **Ideological Secession Matrix (Who Rebels Become):** Breakaway republics don't pick random philosophies—they adopt logical opposing ideologies born from their parent empire's crisis:
+  * **From Zealots *(Great Schism Heretics)*:** Reject religious dogma for science, freedom, or junta rule → **Scientist**, **Bard**, or **Warrior**.
+  * **From Warriors *(Exhausted Frontier Garrisons)*:** Abandon endless militarism for peace and commerce → **Trader**, **Diplomat**, or **Shaman**.
+  * **From Traders *(Mercenary & Worker Revolt)*:** Overthrow corporate oligarchs → **Warrior**, **Ecologist**, or **Zealot**.
+  * **From Scientists *(Anti-Technocracy Uprising)*:** Turn away from cold experiments toward nature and spirit → **Shaman**, **Ecologist**, or **Bard**.
+  * **From Ecologists *(Industrialist Backlash)*:** Break free from strict eco-dogma for profit and tech → **Trader**, **Scientist**, or **Warrior**.
+  * **From Peaceful Civs *(Diplomat / Bard / Shaman)*:** Radicalize during state collapse → **Warrior**, **Trader**, or **Zealot**.
 
 ### 4. "The Great Schism" — Zealot Heresy Cascade
 * Normally, **Zealot** garrisons have **`0%` rebellion chance** thanks to blind fanaticism.
