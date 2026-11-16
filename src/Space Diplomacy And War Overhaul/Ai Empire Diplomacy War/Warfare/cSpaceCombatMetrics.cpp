@@ -337,6 +337,7 @@ int cSpaceCombatMetrics::ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire*
 	Simulator::Archetypes baseArch = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
 	int maxAllowedRoutes = cfg.maxRoutesPerEmpire;
 	if (baseArch == Archetypes::kArchetypeTrader) maxAllowedRoutes += 3;
+	else if (baseArch == Archetypes::kArchetypeBard) maxAllowedRoutes += 2;
 	else if (baseArch == Archetypes::kArchetypeDiplomat || baseArch == Archetypes::kArchetypeScientist) maxAllowedRoutes += 1;
 	else if (baseArch == Archetypes::kArchetypeZealot || baseArch == Archetypes::kArchetypeGrob) maxAllowedRoutes = max(1, maxAllowedRoutes / 2);
 
@@ -377,9 +378,22 @@ int cSpaceCombatMetrics::ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire*
 				float candSpice = GetNormalizedStarSpiceRatio(candStar.get());
 				float spiceDiffRatio = max(originSpice, candSpice) / max(min(originSpice, candSpice), 0.1f);
 
+				// Экологи ценят терраформированные зеленые миры T2/T3 при выборе торгового узла
+				float ecoTerraBonus = 1.0f;
+				if (baseArch == Archetypes::kArchetypeEcologist) {
+					for (const auto& pl : candStar->GetPlanetRecords()) {
+						if (pl && pl->GetTechLevel() == TechLevel::Empire && (pl->mType == PlanetType::T2 || pl->mType == PlanetType::T3)) {
+							ecoTerraBonus = 1.35f;
+							break;
+						}
+					}
+				}
+
 				if (otherEmp == empire) {
-					if (spiceDiffRatio > 1.25f) {
-						float internalScore = spiceDiffRatio * 0.75f;
+					float minDiffNeeded = (baseArch == Archetypes::kArchetypeWarrior) ? 1.05f : 1.25f;
+					if (spiceDiffRatio > minDiffNeeded) {
+						float internalWeight = (baseArch == Archetypes::kArchetypeWarrior) ? 1.10f : 0.75f;
+						float internalScore = spiceDiffRatio * internalWeight * ecoTerraBonus;
 						if (internalScore > bestRouteScore) {
 							bestRouteScore = internalScore;
 							bestPartnerStar = candStar.get();
@@ -394,9 +408,10 @@ int cSpaceCombatMetrics::ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire*
 						? root->empireRelationsAnalyzer->EmpiresAffinity(empire, otherEmp)
 						: 0;
 					bool allied = RelationshipManager.IsAllied(empire, otherEmp);
+					bool openMinded = (baseArch == Archetypes::kArchetypeTrader || baseArch == Archetypes::kArchetypeBard);
 
-					if (allied || affinity >= 1 || (baseArch == Archetypes::kArchetypeTrader && affinity >= 0)) {
-						float foreignScore = spiceDiffRatio * (allied ? 1.6f : 1.15f);
+					if (allied || affinity >= 1 || (openMinded && affinity >= 0)) {
+						float foreignScore = spiceDiffRatio * (allied ? 1.6f : 1.15f) * ecoTerraBonus;
 						if (foreignScore > bestRouteScore) {
 							bestRouteScore = foreignScore;
 							bestPartnerStar = candStar.get();
@@ -430,15 +445,21 @@ int cSpaceCombatMetrics::ManageAndCalculateEmpireTradeIncome(Simulator::cEmpire*
 		float avgWealth = (spiceA + spiceB) * 0.5f;
 
 		bool isInternal = (sA->mEmpireID == sB->mEmpireID);
-		float routeTypeMult = isInternal ? 0.55f : 1.0f;
+		float routeTypeMult = isInternal ? ((baseArch == Archetypes::kArchetypeWarrior) ? 0.85f : 0.55f) : 1.0f;
 
-		float routeValue = static_cast<float>(baseUnitCost) * 0.45f * routeTypeMult *
+		// Шаманы извлекают повышенную выгоду из редких кристаллов пряности
+		float shamanCrystalMult = (baseArch == Archetypes::kArchetypeShaman && max(spiceA, spiceB) >= 2.5f) ? 1.25f : 1.0f;
+
+		float routeValue = static_cast<float>(baseUnitCost) * 0.45f * routeTypeMult * shamanCrystalMult *
 			(1.0f + (arbitrageRatio - 1.0f) * 0.40f * cfg.spiceArbitrageWeight) *
 			(0.75f + min(avgWealth, 8.0f) * 0.15f);
 		totalTradeProfit += routeValue;
 	}
 
-	float archTradeBonus = (baseArch == Archetypes::kArchetypeTrader) ? 1.45f : 1.0f;
+	float archTradeBonus = 1.0f;
+	if (baseArch == Archetypes::kArchetypeTrader) archTradeBonus = 1.45f;
+	else if (baseArch == Archetypes::kArchetypeBard) archTradeBonus = 1.15f;
+
 	return max(static_cast<int>(round(totalTradeProfit * archTradeBonus * cfg.incomeMultiplier)), 0);
 }
 
@@ -639,17 +660,30 @@ void cSpaceCombatMetrics::CalculateDynamicConvoySpecs(
 	float depotBonus = gadgets.hasSpiceStorage ? 1.35f : 1.0f;
 
 	Simulator::Archetypes arch = ArchetypeUtils::GetBaseArchetype(convoyEmpire->mArchetype);
-	float traderFleetBonus = (arch == Archetypes::kArchetypeTrader) ? 1.35f : 1.0f;
+	bool isPlayerKnight = (convoyEmpire->mArchetype == Archetypes::kArchetypePlayerKnight);
 
-	int rawCount = static_cast<int>(round(tierVolume * cityBonus * depotBonus * traderFleetBonus * cfg.convoyDensity));
+	float archFleetBonus = 1.0f;
+	if (arch == Archetypes::kArchetypeTrader) archFleetBonus = 1.35f;
+	else if (arch == Archetypes::kArchetypeBard) archFleetBonus = 1.25f;
+	else if (isPlayerKnight) archFleetBonus = 1.20f;
+	else if (arch == Archetypes::kArchetypeEcologist && (planet->mType == PlanetType::T3 || PlanetUtils::Homeworld(planet))) {
+		archFleetBonus = 1.25f;
+	}
+
+	int rawCount = static_cast<int>(round(tierVolume * cityBonus * depotBonus * archFleetBonus * cfg.convoyDensity));
 	outShipCount = min(max(rawCount, 1), max(cfg.maxRoutesPerEmpire, 6));
 
 	float spiceRatio = planet->GetStarRecord() ? GetNormalizedStarSpiceRatio(planet->GetStarRecord()) : 1.0f;
 	float logSpice = std::log2(max(spiceRatio, 1.0f));
+	if (arch == Archetypes::kArchetypeShaman) {
+		logSpice *= 1.25f;
+	}
+
 	outScaleMult = cfg.convoyBaseScale + (logSpice * cfg.convoyScalePerSpice * cfg.spiceArbitrageWeight);
 	outScaleMult = min(max(outScaleMult, 1.05f), 2.20f);
 
-	outHpMult = outScaleMult * (gadgets.hasUberTurret ? 1.25f : 1.10f);
+	float knightEscortArmor = isPlayerKnight ? 1.15f : 1.0f;
+	outHpMult = outScaleMult * (gadgets.hasUberTurret ? 1.25f : 1.10f) * knightEscortArmor;
 }
 
 void cSpaceCombatMetrics::BootstrapInitialTradeNetwork()
@@ -657,12 +691,14 @@ void cSpaceCombatMetrics::BootstrapInitialTradeNetwork()
 	SdoTradeConfigValues cfg = GetTradeConfig();
 	if (cfg.incomeMultiplier <= 0.01f || !IsSpaceGame()) return;
 
-	// Если сеть уже заполнена из сейва — ничего лишнего не крутим
 	if (static_cast<int>(galacticTradeRoutes.size()) >= cfg.maxRoutesPerEmpire * 2) {
 		return;
 	}
 
 	cCompositionRoot* root = cCompositionRoot::Get();
+	cEmpire* playerEmp = GetPlayerEmpire();
+	if (!playerEmp || playerEmp->mStars.empty()) return;
+
 	StarRequestFilter empStarsFilter;
 	empStarsFilter.RemoveStarType(Simulator::StarType::None);
 	empStarsFilter.RemoveStarType(Simulator::StarType::GalacticCore);
@@ -673,10 +709,6 @@ void cSpaceCombatMetrics::BootstrapInitialTradeNetwork()
 	empStarsFilter.minDistance = 0.0f;
 	empStarsFilter.maxDistance = 40.0f;
 
-	cEmpire* playerEmp = GetPlayerEmpire();
-	if (!playerEmp || playerEmp->mStars.empty()) return;
-
-	// Собираем живые соседние империи вокруг игрока в радиусе активного сектора галактики
 	eastl::vector<cStarRecordPtr> sectorStars;
 	StarManager.FindStars(playerEmp->mStars.front()->mPosition, empStarsFilter, sectorStars);
 
@@ -694,7 +726,6 @@ void cSpaceCombatMetrics::BootstrapInitialTradeNetwork()
 		if (!exists) activeEmpires.push_back(emp);
 	}
 
-	// Сразу даем каждой империи проложить стартовые маршруты строго по XML-квоте cfg.maxRoutesPerEmpire
 	int initialPassCount = max(1, cfg.maxRoutesPerEmpire / 2);
 	for (int pass = 0; pass < initialPassCount; ++pass) {
 		for (cEmpire* emp : activeEmpires) {
@@ -715,7 +746,6 @@ void cSpaceCombatMetrics::EnsurePersistenceLoaded()
 		}
 	}
 }
-
 
 void cSpaceCombatMetrics::ExportStateToPersistence(cPersistenceState* state)
 {
