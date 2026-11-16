@@ -295,6 +295,78 @@ int cSpaceCombatMetrics::GetActiveTradeRoutesBetweenEmpires(
 	return count;
 }
 
+float cSpaceCombatMetrics::GetEmpirePollutionIndex(Simulator::cEmpire* targetEmpire)
+{
+	if (!targetEmpire) return 1.0f;
+	float crusadeXml = 0.35f;
+	PropertyListPtr gProp;
+	if (PropManager.GetPropertyList(id(u"GadgetConfig"), 0x02ae0c7e, gProp) && gProp != nullptr) {
+		App::Property::GetFloat(gProp.get(), 0x07A1BC17, crusadeXml);
+	}
+	if (crusadeXml <= 0.01f) return 1.0f;
+
+	if (targetEmpire != GetPlayerEmpire()) {
+		Simulator::Archetypes arch = ArchetypeUtils::GetBaseArchetype(targetEmpire->mArchetype);
+		if (arch == Archetypes::kArchetypeGrob) return 1.0f + crusadeXml * 1.70f;
+		if (arch == Archetypes::kArchetypeWarrior || arch == Archetypes::kArchetypeTrader || arch == Archetypes::kArchetypeScientist) {
+			return 1.0f + crusadeXml;
+		}
+		return 1.0f;
+	}
+
+	// Для игрока оцениваем реальную урбанизацию и долю мертвых шахт T0/T1 по кэшу планет!
+	int pollutedWorlds = 0;
+	int greenSanctuaries = 0;
+	for (const auto& kv : planetDefenseCache) {
+		if (!kv.first || !kv.first->GetStarRecord()) continue;
+		if (kv.first->GetStarRecord()->mEmpireID != targetEmpire->GetEmpireID()) continue;
+		int cities = kv.second.first;
+		if ((kv.first->mType == PlanetType::T0 || kv.first->mType == PlanetType::T1) && cities >= 2) {
+			pollutedWorlds += cities;
+		} else if (kv.first->mType == PlanetType::T3) {
+			greenSanctuaries += 2;
+		}
+	}
+
+	if (pollutedWorlds > greenSanctuaries + 2) {
+		return min(1.0f + crusadeXml * 1.15f, 1.75f);
+	}
+	return 1.0f;
+}
+
+int cSpaceCombatMetrics::GetEcologistEcoAffinityModifier(Simulator::cEmpire* empire1, Simulator::cEmpire* empire2)
+{
+	if (!empire1 || !empire2 || empire1 == empire2) return 0;
+	cEmpire* playerEmp = GetPlayerEmpire();
+	if (empire1 != playerEmp && empire2 != playerEmp) return 0;
+
+	cEmpire* aiEmp = (empire1 == playerEmp) ? empire2 : empire1;
+	if (ArchetypeUtils::GetBaseArchetype(aiEmp->mArchetype) != Archetypes::kArchetypeEcologist) return 0;
+
+	float crusadeXml = 0.35f;
+	PropertyListPtr gProp;
+	if (PropManager.GetPropertyList(id(u"GadgetConfig"), 0x02ae0c7e, gProp) && gProp != nullptr) {
+		App::Property::GetFloat(gProp.get(), 0x07A1BC17, crusadeXml);
+	}
+	if (crusadeXml <= 0.01f) return 0;
+
+	int pollutedScore = 0;
+	int greenScore = 0;
+	for (const auto& kv : planetDefenseCache) {
+		if (!kv.first || !kv.first->GetStarRecord()) continue;
+		if (kv.first->GetStarRecord()->mEmpireID != playerEmp->GetEmpireID()) continue;
+		if ((kv.first->mType == PlanetType::T0 || kv.first->mType == PlanetType::T1) && kv.second.first >= 2) {
+			pollutedScore += kv.second.first;
+		} else if (kv.first->mType == PlanetType::T3) {
+			greenScore += 2;
+		}
+	}
+
+	if (pollutedScore > greenScore + 3) return -1; // Экологи ненавидят твои дымящие шахты!
+	if (greenScore >= 4 && pollutedScore == 0) return 1; // Экологи восхищаются твоими заповедниками T3!
+	return 0;
+}
+
 int cSpaceCombatMetrics::GetTradeAffinityBonus(Simulator::cEmpire* emp1, Simulator::cEmpire* emp2)
 {
 	SdoTradeConfigValues cfg = GetTradeConfig();
@@ -1202,7 +1274,12 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 			archetypeMultiplier = 1.6f;
 			break;
 		case Archetypes::kArchetypeEcologist:
-			archetypeMultiplier = (planet->mType == PlanetType::T3 || PlanetUtils::Homeworld(planet)) ? 2.0f : 1.1f;
+			if (planet->mType == PlanetType::T0) archetypeMultiplier = 0.55f; // Коллапс биосферы на мертвом камне T0!
+			else if (planet->mType == PlanetType::T3 || PlanetUtils::Homeworld(planet)) {
+				archetypeMultiplier = (GetCurrentContext() != SpaceContext::Planet) ? 2.35f : 2.0f; // В автобое учитываем регенерацию роя!
+			} else {
+				archetypeMultiplier = 1.25f;
+			}
 			break;
 		default:
 			archetypeMultiplier = 0.8f;
