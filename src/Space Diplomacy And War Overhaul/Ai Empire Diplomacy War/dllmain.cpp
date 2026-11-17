@@ -97,7 +97,7 @@ static void RegisterScaledOrbitalShip(cGameDataUFO* ufo, float scaleMult, uint32
 static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, float defaultVal);
 static int GetDynamicMaxTreasuryForEmpire(cEmpire* empire, cCompositionRoot* root);
 
-static void ProcessBackgroundGalacticRevolutions(int deltaGameTime)
+static void ProcessBackgroundGalacticRevolutions(int deltaTime, int deltaGameTime)
 {
 	if (!IsSpaceGame() || deltaGameTime <= 0 || deltaTime <= 0) return;
 
@@ -291,7 +291,7 @@ public:
 
 	void Update(int deltaTime, int deltaGameTime) override
 	{
-		ProcessBackgroundGalacticRevolutions(deltaGameTime);
+		ProcessBackgroundGalacticRevolutions(deltaTime, deltaGameTime);
 		if (!IsSpaceGame() || GetCurrentContext() != SpaceContext::Planet) {
 			if (!sScaledOrbitalShips.empty()) {
 				ClearScaledOrbitalShips();
