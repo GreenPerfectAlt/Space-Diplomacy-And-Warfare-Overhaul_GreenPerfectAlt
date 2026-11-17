@@ -1148,7 +1148,7 @@ static_detour(SpawnUFO__detour, cGameDataUFO*(UfoType, int*, ResourceKey*))
 
 		if (!ownerEmpire && gadgetMult > 0.01f && GetPlayerEmpire() != nullptr) {
 			cEmpire* playerEmp = GetPlayerEmpire();
-			float raiderHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(playerEmp) * (0.90f + 0.25f * gadgetMult);
+			float raiderHP = root->spaceCombatMetrics->GetDefenderHealthByEmpire(playerEmp) * (0.75f + 0.15f * gadgetMult);
 			if (GetCurrentContext() == SpaceContext::Planet && GetActivePlanetRecord() && GetActivePlanetRecord()->GetStarRecord()) {
 				cEmpire* hostEmp = StarManager.GetEmpire(GetActivePlanetRecord()->GetStarRecord()->mEmpireID);
 				if (hostEmp && ArchetypeUtils::GetBaseArchetype(hostEmp->mArchetype) == Archetypes::kArchetypeShaman) {
