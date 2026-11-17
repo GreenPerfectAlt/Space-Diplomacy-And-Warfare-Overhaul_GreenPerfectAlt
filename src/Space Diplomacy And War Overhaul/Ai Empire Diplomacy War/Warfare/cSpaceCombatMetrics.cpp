@@ -1166,17 +1166,25 @@ float cSpaceCombatMetrics::GetDefenderHealthByEmpire(Simulator::cEmpire* empire)
 {
 	if (empire == nullptr) return GetDefenderHealthByLevel(0);
 
-	float baseHealth = GetDefenderHealthByLevel(empire->GetWeaponryLevel());
 	if (empire == GetPlayerEmpire()) {
-		float empScale = 1.0f + min(static_cast<float>(empire->mStars.size()) * 0.012f, 0.35f);
-		baseHealth *= empScale;
-		if (empire->mArchetype == Archetypes::kArchetypePlayerKnight) {
-			float lvlF = static_cast<float>(empire->GetWeaponryLevel() + 1) / 5.0f;
-			return baseHealth * (1.0f + 0.30f * lvlF);
+		float commanderMaxHP = 300.0f;
+		cGameDataUFO* playerUfo = Simulator::GetPlayerUFO();
+		if (playerUfo != nullptr && playerUfo->mMaxHealthPoints > 50.0f) {
+			commanderMaxHP = playerUfo->mMaxHealthPoints;
 		}
+		float playerBase = commanderMaxHP * 0.85f;
+		if (empire->mArchetype == Archetypes::kArchetypePlayerKnight ||
+		    empire->mArchetype == Archetypes::kArchetypePlayerWarrior) {
+			return playerBase * 1.15f;
+		}
+		if (empire->mArchetype == Archetypes::kArchetypePlayerBard ||
+		    empire->mArchetype == Archetypes::kArchetypePlayerDiplomat) {
+			return playerBase * 0.90f;
+		}
+		return playerBase;
 	}
 
-
+	float baseHealth = GetDefenderHealthByLevel(empire->GetWeaponryLevel());
 	float levelFactor = static_cast<float>(empire->GetWeaponryLevel() + 1) / 5.0f;
 	Simulator::Archetypes baseArchetype = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
 
