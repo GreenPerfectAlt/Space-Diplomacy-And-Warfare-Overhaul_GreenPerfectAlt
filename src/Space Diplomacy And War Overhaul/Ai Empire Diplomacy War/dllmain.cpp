@@ -99,15 +99,15 @@ static int GetDynamicMaxTreasuryForEmpire(cEmpire* empire, cCompositionRoot* roo
 
 static void ProcessBackgroundGalacticRevolutions(int deltaGameTime)
 {
-	if (!IsSpaceGame() || deltaGameTime <= 0) return;
+	if (!IsSpaceGame() || deltaGameTime <= 0 || deltaTime <= 0) return;
 
 	float rebMult = ReadExternalConfigFloat(u"RebellionConfig", 0x07A1BC02, 1.0f);
 	float cdSec   = ReadExternalConfigFloat(u"RebellionConfig", 0x07A1BC10, 180.0f);
 	int minStarsForSecession = max(static_cast<int>(round(ReadExternalConfigFloat(u"RebellionConfig", 0x07A1BC11, 6.0f))), 4);
 
 	if (rebMult <= 0.01f || cdSec <= 1.0f) return;
-
-	sGalaxyRevolutionTickAccumMs += deltaGameTime;
+	
+	sGalaxyRevolutionTickAccumMs += min(deltaTime, 100);
 	int intervalMs = static_cast<int>(round(cdSec * 1000.0f));
 	if (sGalaxyRevolutionTickAccumMs < intervalMs) return;
 	sGalaxyRevolutionTickAccumMs = 0;
@@ -273,7 +273,7 @@ static void ProcessBackgroundGalacticRevolutions(int deltaGameTime)
 }
 
 static void TrySummonShamanAstralWarden(cPlanetRecord* pRec, cEmpire* planetEmpire, cCompositionRoot* root);
-static void ProcessEcologistBiospherePulse(int deltaGameTime);
+static void ProcessEcologistBiospherePulse(int deltaTime, int deltaGameTime);
 
 class cOrbitalVisualsStrategy : public Simulator::cStrategy
 {
@@ -299,7 +299,7 @@ public:
 			return;
 		}
 		
-		ProcessEcologistBiospherePulse(deltaGameTime);
+		ProcessEcologistBiospherePulse(deltaTime, deltaGameTime);
 
 		if (!sShamanWardenSummonedThisVisit && GetActivePlanetRecord() && GetActivePlanetRecord()->GetStarRecord()) {
 			cEmpire* hostEmp = StarManager.GetEmpire(GetActivePlanetRecord()->GetStarRecord()->mEmpireID);
@@ -361,11 +361,12 @@ static float ReadExternalConfigFloat(const char16_t* propName, uint32_t propID, 
 static bool IsNpcPlanetInCombat(cPlanetRecord* planet, cEmpire* ownerEmpire);
 static bool IsShamanAstralNexusSevered(cEmpire* empire, cCompositionRoot* root);
 
-static void ProcessEcologistBiospherePulse(int deltaGameTime)
+static void ProcessEcologistBiospherePulse(int deltaTime, int deltaGameTime)
 {
-	if (deltaGameTime <= 0) return;
-	sEcologistBioPulseAccumMs += deltaGameTime;
-	if (sEcologistBioPulseAccumMs < 2000) return; // Строго раз в 2 секунды — 0 нагрузки на FPS!
+	// Если игра на паузе (deltaGameTime <= 0) — ничего не тикаем, но шаг берем в реальных мс кадра (deltaTime)!
+	if (deltaGameTime <= 0 || deltaTime <= 0) return;
+	sEcologistBioPulseAccumMs += min(deltaTime, 100); // Защита от скачка дельты при прогрузке планеты!
+	if (sEcologistBioPulseAccumMs < 2000) return;     // Железно раз в 2 реальные секунды!
 	sEcologistBioPulseAccumMs = 0;
 
 	cPlanetRecord* activePlanet = GetActivePlanetRecord();
@@ -388,7 +389,6 @@ static void ProcessEcologistBiospherePulse(int deltaGameTime)
 	else if (activePlanet->mType == PlanetType::T2) tScore = 2;
 	else if (activePlanet->mType == PlanetType::T3) tScore = 3;
 
-	// На выжженном камне T0 регенерации нет (работает только распад при Некрозе)
 	if (tScore == 0 && !necrosisActive) return;
 
 	SdoPlanetGadgetInfo gInfo = root->spaceCombatMetrics->GetPlanetGadgetInfo(activePlanet);
@@ -405,18 +405,22 @@ static void ProcessEcologistBiospherePulse(int deltaGameTime)
 		if (!isHostShip && !isAlliedGuest) continue;
 
 		if (necrosisActive && isHostShip) {
-			// Токсичный некроз: живая обшивка гниет в полете!
-			float decay = ufo->mMaxHealthPoints * (regenXml * 0.45f);
-			ufo->mHealthPoints = max(ufo->mHealthPoints - decay, 15.0f);
+			// Мягкий некроз: отключает отхил и плавно подсушивает текущую броню (~1.2% раз в 2 сек), но НЕ ниже 40% от макс. ХП!
+			float minSafeFloor = ufo->mMaxHealthPoints * 0.40f;
+			if (ufo->mHealthPoints > minSafeFloor) {
+				float decay = ufo->mHealthPoints * (regenXml * 0.22f);
+				ufo->mHealthPoints = max(ufo->mHealthPoints - decay, minSafeFloor);
+			}
 		} else if (!necrosisActive && ufo->mHealthPoints < ufo->mMaxHealthPoints) {
-			// Логистический фотосинтез: быстро лечит тяжелые раны, но пробивается фокусом огня
+			// Логистический фотосинтез раз в 2 реальные секунды
 			float missingRatio = 1.0f - (ufo->mHealthPoints / ufo->mMaxHealthPoints);
 			float allyMult = isHostShip ? 1.0f : 0.5f;
-			float heal = ufo->mMaxHealthPoints * regenXml * tFactor * bioBoost * missingRatio * allyMult;
+			float heal = ufo->mMaxHealthPoints * (regenXml * 0.65f) * tFactor * bioBoost * missingRatio * allyMult;
 			ufo->mHealthPoints = min(ufo->mHealthPoints + heal, ufo->mMaxHealthPoints);
 		}
 	}
 }
+
 
 static void TrySummonShamanAstralWarden(cPlanetRecord* pRec, cEmpire* planetEmpire, cCompositionRoot* root)
 {
@@ -1495,15 +1499,22 @@ static void HandlePlayerToolOnNpcPlanet(cSpaceToolData* pTool)
 
 	else if (ArchetypeUtils::GetBaseArchetype(npcEmpire->mArchetype) == Archetypes::kArchetypeEcologist) {
 		float necroSecXml = ReadExternalConfigFloat(u"GadgetConfig", 0x07A1BC16, 45.0f);
-		// А) Похищающий луч (кража животных!), Искоренитель видов, Антивещество и Гигадетонатор вызывают Токсичный некроз!
-		if (MatchNpcToolKey(toolId, "abduct", "tractorbeam", "eradicate", 0x03F3E470, 0x04668B88) ||
-		    MatchNpcToolKey(toolId, "antimatterbomb", "antimattermissile", "megabomb", 0x03F3E494, 0x03F3E495) ||
-		    MatchNpcToolKey(toolId, "specieseradicator", "plague", "bioweapon", 0x04668B89, 0x04668B8A)) {
+		// А1) Бесплатный Похищающий луч дает только короткий сбой регенерации (30% времени XML ~ 13 сек)!
+		if (MatchNpcToolKey(toolId, "abduct", "tractorbeam", nullptr, 0x03F3E470, 0)) {
+			if (nowTime > 0 && necroSecXml > 1.0f) {
+				uint32_t shortMs = static_cast<uint32_t>(round(necroSecXml * 300.0f));
+				sEcologistNecrosisEndTime[cPlanetRecordPtr(activePlanet)] = nowTime + shortMs;
+			}
+		}
+		// А2) Тяжелое био-оружие и Антивещество запускают полноценный Токсичный некроз (100% времени XML)!
+		else if (MatchNpcToolKey(toolId, "eradicate", "specieseradicator", "plague", 0x04668B88, 0x04668B89) ||
+		         MatchNpcToolKey(toolId, "antimatterbomb", "antimattermissile", "megabomb", 0x03F3E494, 0x03F3E495)) {
 			if (nowTime > 0 && necroSecXml > 1.0f) {
 				sEcologistNecrosisEndTime[cPlanetRecordPtr(activePlanet)] = nowTime + static_cast<uint32_t>(round(necroSecXml * 1000.0f));
 				Audio::PlayAudio(id("spc_biome_disaster"));
 			}
 		}
+
 		// Б) Обычное климатическое оружие на живой планете T1-T3 злит биосферу -> Контрудар роя спор (до 3 волн за бой)!
 		else if (activePlanet->mType != PlanetType::T0 && sEcologistSporeSwarmsThisBattle < 3 && necroSecXml > 1.0f &&
 		         (MatchNpcToolKey(toolId, "meteorstrike", "volcano", "drought", 0x04668B70, 0x04668B71) ||
