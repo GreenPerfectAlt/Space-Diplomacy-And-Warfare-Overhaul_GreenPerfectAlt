@@ -1166,26 +1166,17 @@ float cSpaceCombatMetrics::GetDefenderHealthByEmpire(Simulator::cEmpire* empire)
 {
 	if (empire == nullptr) return GetDefenderHealthByLevel(0);
 
+	float baseHealth = GetDefenderHealthByLevel(empire->GetWeaponryLevel());
 	if (empire == GetPlayerEmpire()) {
-		PropertyListPtr propListFleet;
-		if (PropManager.GetPropertyList(id(u"FleetConfig"), 0x02ae0c7e, propListFleet) && propListFleet != nullptr) {
-			int weaponryRank = max(empire->GetWeaponryLevel(), 1);
-			int totalStars = static_cast<int>(empire->mStars.size());
-			float industrialBonus = min(static_cast<float>(totalStars) * 8.0f, 400.0f);
-			float dynBase = 450.0f + (static_cast<float>(weaponryRank) * 120.0f) + industrialBonus;
-
-			int arch = empire->mArchetype;
-			float archMult = 0.85f;
-			if (arch == 1 || arch == 2 || arch == 3 || arch == 10 || arch == 11 || arch == 12 || arch == 13) {
-				archMult = 1.35f;
-			} else if (arch == 4 || arch == 5 || arch == 6 || arch == 14 || arch == 15 || arch == 16) {
-				archMult = 1.10f;
-			}
-			return dynBase * archMult;
+		float empScale = 1.0f + min(static_cast<float>(empire->mStars.size()) * 0.012f, 0.35f);
+		baseHealth *= empScale;
+		if (empire->mArchetype == Archetypes::kArchetypePlayerKnight) {
+			float lvlF = static_cast<float>(empire->GetWeaponryLevel() + 1) / 5.0f;
+			return baseHealth * (1.0f + 0.30f * lvlF);
 		}
 	}
 
-	float baseHealth = GetDefenderHealthByLevel(empire->GetWeaponryLevel());
+
 	float levelFactor = static_cast<float>(empire->GetWeaponryLevel() + 1) / 5.0f;
 	Simulator::Archetypes baseArchetype = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
 
