@@ -1149,10 +1149,27 @@ float cSpaceCombatMetrics::GetDefenderHealthInPlanet(Simulator::cPlanetRecord* p
 	float logSpice = std::log2(max(planetSpicePrice / refRedPrice, 1.0f));
 	totalHP *= (1.0f + 0.20f * (logSpice / (logSpice + 2.5f)));
 
-	// 3. Множитель планетарных гаджетов из GadgetConfig.prop (0x07A1BC06)
+	// 3. Лорные модификаторы биосферы T0 и Астрального Нексуса (v1.1.4 - v1.1.4.2) + Гаджеты (0x07A1BC06)
 	SdoPlanetGadgetInfo gadgets = GetPlanetGadgetInfo(planet);
 	float gadgetMult = GetExternalGadgetMultiplier();
 	Simulator::Archetypes baseArch = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
+
+	if (planet->mType == PlanetType::T0) {
+		if (baseArch == Archetypes::kArchetypeEcologist) totalHP *= 0.75f;
+		else if (baseArch == Archetypes::kArchetypeShaman) totalHP *= 0.85f;
+	}
+	if (baseArch == Archetypes::kArchetypeShaman && gadgetMult > 0.01f) {
+		cStarRecord* homeSt = EmpireUtils::GetHomeStar(empire);
+		bool homeSevered = (!homeSt || homeSt->mEmpireID != empire->GetEmpireID() || IsStarBlockaded(homeSt));
+		if (homeSevered) {
+			float nexusPenalty = 0.30f;
+			PropertyListPtr gProp;
+			if (PropManager.GetPropertyList(id(u"GadgetConfig"), 0x02ae0c7e, gProp) && gProp != nullptr) {
+				App::Property::GetFloat(gProp.get(), 0x07A1BC13, nexusPenalty);
+			}
+			totalHP *= max(0.45f, 1.0f - nexusPenalty);
+		}
+	}
 
 	float gadgetBonus = 0.0f;
 	if (gadgets.hasUberTurret) {
@@ -1164,18 +1181,18 @@ float cSpaceCombatMetrics::GetDefenderHealthInPlanet(Simulator::cPlanetRecord* p
 	}
 	totalHP *= (1.0f + gadgetBonus);
 
-	// 4. Гладкая S-кривая финансирования казны (строго для империи игрока)
+	// 4. Zero-Hardcode S-кривая финансирования казны (от эталонной цены красной пряности из .prop)
 	if (empire == GetPlayerEmpire()) {
 		int starCount = static_cast<int>(empire->mStars.size());
-		float approxMaxTreasury = min(max((120000.0f + std::sqrt(static_cast<float>(max(starCount, 1))) * 220000.0f) *
-			((baseArch == Archetypes::kArchetypeTrader) ? 1.35f : 1.0f), 150000.0f), 5000000.0f);
-		float fillRatio = static_cast<float>(max(empire->mEmpireMoney, 0)) / approxMaxTreasury;
+		float bankMult = (baseArch == Archetypes::kArchetypeTrader) ? 1.55f : 1.0f;
+		float approxMaxTreasury = max((refRedPrice * 400.0f + std::sqrt(static_cast<float>(max(starCount, 1))) * (refRedPrice * 750.0f)) * bankMult, refRedPrice * 350.0f);
+		float fillRatio = static_cast<float>(max(empire->mEmpireMoney, 0)) / max(approxMaxTreasury, 1.0f);
 		float deficitDrop = 0.25f * std::exp(-fillRatio * 14.0f);
 		float surplusBoost = (starCount >= 3) ? (0.16f * 0.5f * (std::tanh((fillRatio - 0.72f) * 4.0f) + 1.0f)) : 0.0f;
 		totalHP *= (1.0f - deficitDrop + surplusBoost);
 	}
 
-	return max(totalHP, 100.0f);
+	return max(totalHP, 50.0f);
 }
 
 float cSpaceCombatMetrics::GetTurretHealthByEmpire(Simulator::cEmpire* empire)
@@ -1315,6 +1332,9 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 			else if (planet->mType == PlanetType::T0) basePlayerDef = 5;
 
 			int rawTotal = basePlayerDef + (colonyCount - 1) * stepBonus;
+			if (planet->mType == PlanetType::T0 && ArchetypeUtils::GetBaseArchetype(empire->mArchetype) == Archetypes::kArchetypeEcologist) {
+				rawTotal = max(1, static_cast<int>(round(static_cast<float>(rawTotal) * 0.55f)));
+			}
 			if (gadgets.hasSpiceStorage) {
 				rawTotal = static_cast<int>(round(static_cast<float>(rawTotal) * (1.0f + 0.25f * GetExternalGadgetMultiplier())));
 			}
