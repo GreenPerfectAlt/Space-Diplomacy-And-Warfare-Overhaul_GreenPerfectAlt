@@ -50,7 +50,7 @@ int cWarfareStrengthAnalyzer::GetBomberForceForPlanet(Simulator::cEmpire* empire
     float empireFighterHealth = max(spaceCombatMetrics->GetFighterHealthByEmpire(empire), 1.0f);
     int empireFightersPerBomber = max(spaceCombatMetrics->GetFightersPerBomber(), 1);
     float targetTurretHealth = spaceCombatMetrics->GetTurretHealthByEmpire(targetEmpire);
-    float targetDefenderHealth = spaceCombatMetrics->GetDefenderHealthByEmpire(targetEmpire);
+    float targetDefenderHealth = spaceCombatMetrics->GetDefenderHealthInPlanet(planet);
     int planetDefenders = spaceCombatMetrics->GetDefendersInPlanet(planet);
     int planetTurrets = spaceCombatMetrics->GetTurretsInPlanet(planet);
 
@@ -120,8 +120,10 @@ float cWarfareStrengthAnalyzer::GetBombersProducedByFactory(ResourceKey spiceKey
     if (spiceCost <= 0.0f) {
         spiceCost = cheapestSpiceCost;
     }
-    float spiceCostRatio = spiceCost / cheapestSpiceCost;
-    return warfareConfig->GetBombersPerRedSpiceFactory() * spiceCostRatio;
+    float rawRatio = max(spiceCost / cheapestSpiceCost, 0.5f);
+    // Гладкая степенная кривая 4X: редкие и модовые пряности дают весомый прирост ВПК без разрыва экономики
+    float balancedSpiceRatio = std::pow(rawRatio, 0.65f);
+    return warfareConfig->GetBombersPerRedSpiceFactory() * balancedSpiceRatio;
 }
 
 int cWarfareStrengthAnalyzer::GetFactoryCountInPlanet(Simulator::cPlanetRecord* planet){
