@@ -1311,16 +1311,6 @@ float cSpaceCombatMetrics::GetDefenderHealthByEmpire(Simulator::cEmpire* empire)
 	}
 }
 
-float cSpaceCombatMetrics::GetTurretHealthByEmpire(Simulator::cEmpire* empire)
-{
-	if (empire == nullptr) return GetTurretHealthByLevel(0);
-	float baseTurretHP = GetTurretHealthByLevel(empire->GetWeaponryLevel());
-	if (ArchetypeUtils::GetBaseArchetype(empire->mArchetype) == Archetypes::kArchetypeScientist) {
-		return baseTurretHP * 1.35f; // Высокотехнологичные ИИ-турели Ученых
-	}
-	return baseTurretHP;
-}
-
 int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 {
 	if (planet == nullptr) return GetDefendersInColony();
