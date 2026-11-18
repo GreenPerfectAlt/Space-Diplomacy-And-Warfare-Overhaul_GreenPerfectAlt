@@ -1127,50 +1127,68 @@ float cSpaceCombatMetrics::GetDefenderHealthInPlanet(Simulator::cPlanetRecord* p
 
 	UpdatePlanetDefenseCache(planet);
 
-	// 1. Синхронная гипербола Т-индекса, городов и турелей (для Игрока и укрепленных миров ИИ)
-	float tierArmorMult = 0.80f;
-	if (PlanetUtils::Homeworld(planet) || planet->mType == PlanetType::T3) tierArmorMult = 1.10f;
-	else if (planet->mType == PlanetType::T2) tierArmorMult = 0.98f;
-	else if (planet->mType == PlanetType::T1) tierArmorMult = 0.88f;
+	float gadgetMult = GetExternalGadgetMultiplier();
+	float infraScale = min(gadgetMult, 2.0f);
+	Simulator::Archetypes baseArch = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
 
+	// 1. Синхронная гипербола Т-индекса, городов и турелей (подчиняется GadgetConfig.prop)
+	float rawTierDelta = -0.20f;
+	if (PlanetUtils::Homeworld(planet) || planet->mType == PlanetType::T3) rawTierDelta = 0.10f;
+	else if (planet->mType == PlanetType::T2) rawTierDelta = -0.02f;
+	else if (planet->mType == PlanetType::T1) rawTierDelta = -0.12f;
+
+	float tierArmorMult = 1.0f + rawTierDelta * min(infraScale, 1.25f);
 	int defaultCities = (PlanetUtils::Homeworld(planet) || planet->mType == PlanetType::T3) ? 3 : ((planet->mType == PlanetType::T2) ? 2 : 1);
 	int cities = max(GetCachedCityCount(planet), defaultCities);
 	int turrets = GetTurretsInPlanet(planet);
 
 	float extraCities = static_cast<float>(max(cities - 1, 0));
 	float turretF = static_cast<float>(max(turrets, 0));
-	float cityHyperbola = 0.32f * (extraCities / (extraCities + 5.5f));
-	float turretHyperbola = 0.16f * (turretF / (turretF + 22.0f));
-	totalHP *= (tierArmorMult + cityHyperbola + turretHyperbola);
+	float cityHyperbola = (0.32f * infraScale) * (extraCities / (extraCities + 5.5f));
+	float turretHyperbola = (0.16f * infraScale) * (turretF / (turretF + 22.0f));
+	totalHP *= max(tierArmorMult + cityHyperbola + turretHyperbola, 0.50f);
 
-	// 2. Динамическая цена пряности из .prop движка (поддержка любых модов на пряность)
+	// 2. Динамическая цена пряности (подчиняется TradeConfig.prop -> spiceArbitrageWeight)
 	float refRedPrice = max(ReadDynamicSpiceCostFromEngine(0x0289B83D), 1.0f);
-	float planetSpicePrice = max(ReadDynamicSpiceCostFromEngine(planet->mSpiceGen.instanceID), refRedPrice);
-	float logSpice = std::log2(max(planetSpicePrice / refRedPrice, 1.0f));
-	totalHP *= (1.0f + 0.20f * (logSpice / (logSpice + 2.5f)));
+	SdoTradeConfigValues tradeCfg = GetTradeConfig();
+	if (tradeCfg.incomeMultiplier > 0.01f && tradeCfg.spiceArbitrageWeight > 0.01f) {
+		float planetSpicePrice = max(ReadDynamicSpiceCostFromEngine(planet->mSpiceGen.instanceID), refRedPrice);
+		float logSpice = std::log2(max(planetSpicePrice / refRedPrice, 1.0f));
+		totalHP *= (1.0f + (0.20f * tradeCfg.spiceArbitrageWeight) * (logSpice / (logSpice + 2.5f)));
+	}
 
-	// 3. Лорные модификаторы биосферы T0 и Астрального Нексуса (v1.1.4 - v1.1.4.2) + Гаджеты (0x07A1BC06)
-	SdoPlanetGadgetInfo gadgets = GetPlanetGadgetInfo(planet);
-	float gadgetMult = GetExternalGadgetMultiplier();
-	Simulator::Archetypes baseArch = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
+	// 3. Лорные модификаторы T0 и Астрального Нексуса (0x07A1BC13, 0x07A1BC15) + Гаджеты (0x07A1BC06)
+	float shamanScale = gadgetMult;
+	float ecoScale = gadgetMult;
+	if (gadgetMult > 0.01f) {
+		PropertyListPtr gProp;
+		if (PropManager.GetPropertyList(id(u"GadgetConfig"), 0x02ae0c7e, gProp) && gProp != nullptr) {
+			float nexusVal = -1.0f;
+			if (App::Property::GetFloat(gProp.get(), 0x07A1BC13, nexusVal) && nexusVal >= 0.0f) shamanScale = nexusVal / 0.30f;
+			float bioVal = -1.0f;
+			if (App::Property::GetFloat(gProp.get(), 0x07A1BC15, bioVal) && bioVal >= 0.0f) ecoScale = bioVal / 0.06f;
+		}
+	} else {
+		shamanScale = 0.0f;
+		ecoScale = 0.0f;
+	}
 
 	if (planet->mType == PlanetType::T0) {
-		if (baseArch == Archetypes::kArchetypeEcologist) totalHP *= 0.75f;
-		else if (baseArch == Archetypes::kArchetypeShaman) totalHP *= 0.85f;
+		if (baseArch == Archetypes::kArchetypeEcologist && ecoScale > 0.01f) {
+			totalHP *= max(0.50f, 1.0f - 0.25f * ecoScale);
+		} else if (baseArch == Archetypes::kArchetypeShaman && shamanScale > 0.01f) {
+			totalHP *= max(0.65f, 1.0f - 0.15f * shamanScale);
+		}
 	}
-	if (baseArch == Archetypes::kArchetypeShaman && gadgetMult > 0.01f) {
+	if (baseArch == Archetypes::kArchetypeShaman && shamanScale > 0.01f) {
 		cStarRecord* homeSt = EmpireUtils::GetHomeStar(empire);
 		bool homeSevered = (!homeSt || homeSt->mEmpireID != empire->GetEmpireID() || IsStarBlockaded(homeSt));
 		if (homeSevered) {
-			float nexusPenalty = 0.30f;
-			PropertyListPtr gProp;
-			if (PropManager.GetPropertyList(id(u"GadgetConfig"), 0x02ae0c7e, gProp) && gProp != nullptr) {
-				App::Property::GetFloat(gProp.get(), 0x07A1BC13, nexusPenalty);
-			}
-			totalHP *= max(0.45f, 1.0f - nexusPenalty);
+			totalHP *= max(0.45f, 1.0f - 0.30f * shamanScale);
 		}
 	}
 
+	SdoPlanetGadgetInfo gadgets = GetPlanetGadgetInfo(planet);
 	float gadgetBonus = 0.0f;
 	if (gadgets.hasUberTurret) {
 		gadgetBonus += ((baseArch == Archetypes::kArchetypeScientist) ? 0.40f : 0.25f) * gadgetMult;
@@ -1181,15 +1199,23 @@ float cSpaceCombatMetrics::GetDefenderHealthInPlanet(Simulator::cPlanetRecord* p
 	}
 	totalHP *= (1.0f + gadgetBonus);
 
-	// 4. Zero-Hardcode S-кривая финансирования казны (от эталонной цены красной пряности из .prop)
+	// 4. S-кривая финансирования казны (подчиняется UpkeepConfig.prop -> 0x07A1BC03)
 	if (empire == GetPlayerEmpire()) {
-		int starCount = static_cast<int>(empire->mStars.size());
-		float bankMult = (baseArch == Archetypes::kArchetypeTrader) ? 1.55f : 1.0f;
-		float approxMaxTreasury = max((refRedPrice * 400.0f + std::sqrt(static_cast<float>(max(starCount, 1))) * (refRedPrice * 750.0f)) * bankMult, refRedPrice * 350.0f);
-		float fillRatio = static_cast<float>(max(empire->mEmpireMoney, 0)) / max(approxMaxTreasury, 1.0f);
-		float deficitDrop = 0.25f * std::exp(-fillRatio * 14.0f);
-		float surplusBoost = (starCount >= 3) ? (0.16f * 0.5f * (std::tanh((fillRatio - 0.72f) * 4.0f) + 1.0f)) : 0.0f;
-		totalHP *= (1.0f - deficitDrop + surplusBoost);
+		float upkeepMult = 1.0f;
+		PropertyListPtr upProp;
+		if (PropManager.GetPropertyList(id(u"UpkeepConfig"), 0x02ae0c7e, upProp) && upProp != nullptr) {
+			App::Property::GetFloat(upProp.get(), 0x07A1BC03, upkeepMult);
+		}
+		if (upkeepMult > 0.01f) {
+			float econScale = min(upkeepMult, 2.0f);
+			int starCount = static_cast<int>(empire->mStars.size());
+			float bankMult = (baseArch == Archetypes::kArchetypeTrader) ? 1.55f : 1.0f;
+			float approxMaxTreasury = max((refRedPrice * 400.0f + std::sqrt(static_cast<float>(max(starCount, 1))) * (refRedPrice * 750.0f)) * bankMult, refRedPrice * 350.0f);
+			float fillRatio = static_cast<float>(max(empire->mEmpireMoney, 0)) / max(approxMaxTreasury, 1.0f);
+			float deficitDrop = (0.25f * min(econScale, 1.5f)) * std::exp(-fillRatio * 14.0f);
+			float surplusBoost = (starCount >= 3) ? ((0.16f * min(econScale, 1.5f)) * 0.5f * (std::tanh((fillRatio - 0.72f) * 4.0f) + 1.0f)) : 0.0f;
+			totalHP *= max(1.0f - deficitDrop + surplusBoost, 0.55f);
+		}
 	}
 
 	return max(totalHP, 50.0f);
@@ -1332,8 +1358,16 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 			else if (planet->mType == PlanetType::T0) basePlayerDef = 5;
 
 			int rawTotal = basePlayerDef + (colonyCount - 1) * stepBonus;
-			if (planet->mType == PlanetType::T0 && ArchetypeUtils::GetBaseArchetype(empire->mArchetype) == Archetypes::kArchetypeEcologist) {
-				rawTotal = max(1, static_cast<int>(round(static_cast<float>(rawTotal) * 0.55f)));
+			if (planet->mType == PlanetType::T0 && ArchetypeUtils::GetBaseArchetype(empire->mArchetype) == Archetypes::kArchetypeEcologist && GetExternalGadgetMultiplier() > 0.01f) {
+				float bioVal = 0.06f;
+				PropertyListPtr gProp;
+				if (PropManager.GetPropertyList(id(u"GadgetConfig"), 0x02ae0c7e, gProp) && gProp != nullptr) {
+					App::Property::GetFloat(gProp.get(), 0x07A1BC15, bioVal);
+				}
+				if (bioVal > 0.001f) {
+					float t0Factor = max(0.30f, 1.0f - 0.45f * (bioVal / 0.06f));
+					rawTotal = max(1, static_cast<int>(round(static_cast<float>(rawTotal) * t0Factor)));
+				}
 			}
 			if (gadgets.hasSpiceStorage) {
 				rawTotal = static_cast<int>(round(static_cast<float>(rawTotal) * (1.0f + 0.25f * GetExternalGadgetMultiplier())));
