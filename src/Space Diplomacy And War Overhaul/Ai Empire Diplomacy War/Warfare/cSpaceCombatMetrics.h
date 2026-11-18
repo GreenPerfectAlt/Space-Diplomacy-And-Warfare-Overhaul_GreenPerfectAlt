@@ -65,6 +65,7 @@ public:
 	float GetBomberHealthByEmpire(Simulator::cEmpire* empire);
 	float GetFighterHealthByEmpire(Simulator::cEmpire* empire);
 	float GetDefenderHealthByEmpire(Simulator::cEmpire* empire);
+	float GetDefenderHealthInPlanet(Simulator::cPlanetRecord* planet);
 	float GetTurretHealthByEmpire(Simulator::cEmpire* empire);
 
 	int GetDefendersInPlanet(Simulator::cPlanetRecord* planet);
