@@ -1221,7 +1221,7 @@ float cSpaceCombatMetrics::GetDefenderHealthInPlanet(Simulator::cPlanetRecord* p
 	return max(totalHP, 50.0f);
 }
 
-float cSpaceCombatMetrics::GetTurretHealthByEmpire(Simulator::cEmpire* empire)
+float cSpaceCombatMetrics::GetFighterHealthByEmpire(Simulator::cEmpire* empire)
 {
 	if (empire == nullptr) return GetFighterHealthByLevel(0);
 	float baseHealth = GetFighterHealthByLevel(empire->GetWeaponryLevel());
@@ -1255,6 +1255,17 @@ float cSpaceCombatMetrics::GetTurretHealthByEmpire(Simulator::cEmpire* empire)
 		return baseHealth;
 	}
 }
+
+float cSpaceCombatMetrics::GetTurretHealthByEmpire(Simulator::cEmpire* empire)
+{
+	if (empire == nullptr) return GetTurretHealthByLevel(0);
+	float baseTurretHP = GetTurretHealthByLevel(empire->GetWeaponryLevel());
+	if (ArchetypeUtils::GetBaseArchetype(empire->mArchetype) == Archetypes::kArchetypeScientist) {
+		return baseTurretHP * 1.35f;
+	}
+	return baseTurretHP;
+}
+
 
 float cSpaceCombatMetrics::GetDefenderHealthByEmpire(Simulator::cEmpire* empire)
 {
