@@ -1109,25 +1109,76 @@ float cSpaceCombatMetrics::GetBomberHealthByEmpire(Simulator::cEmpire* empire)
 	case Archetypes::kArchetypeBard:
 	case Archetypes::kArchetypeDiplomat:
 		return baseHealth * (1.0f - (0.20f * (1.0f - levelFactor * 0.5f)));
-	case Archetypes::kArchetypeShaman: {
-		cStarRecord* homeSt = EmpireUtils::GetHomeStar(empire);
-		bool homeSevered = (!homeSt || homeSt->mEmpireID != empire->GetEmpireID() || IsStarBlockaded(homeSt));
-		if (homeSevered) {
-			float nexusPenalty = 0.30f;
-			PropertyListPtr gProp;
-			if (PropManager.GetPropertyList(id(u"GadgetConfig"), 0x02ae0c7e, gProp) && gProp != nullptr) {
-				App::Property::GetFloat(gProp.get(), 0x07A1BC13, nexusPenalty);
-			}
-			return baseHealth * max(0.45f, 1.0f - nexusPenalty);
-		}
-		return baseHealth;
-	}
 	default:
 		return baseHealth;
 	}
 }
 
-float cSpaceCombatMetrics::GetFighterHealthByEmpire(Simulator::cEmpire* empire)
+float cSpaceCombatMetrics::GetDefenderHealthInPlanet(Simulator::cPlanetRecord* planet)
+{
+	if (planet == nullptr) return GetDefenderHealthByLevel(0);
+
+	cEmpire* empire = (planet->GetStarRecord() != nullptr)
+		? StarManager.GetEmpire(planet->GetStarRecord()->mEmpireID)
+		: nullptr;
+
+	float totalHP = GetDefenderHealthByEmpire(empire);
+	if (empire == nullptr) return totalHP;
+
+	UpdatePlanetDefenseCache(planet);
+
+	// 1. Синхронная гипербола Т-индекса, городов и турелей (для Игрока и укрепленных миров ИИ)
+	float tierArmorMult = 0.80f;
+	if (PlanetUtils::Homeworld(planet) || planet->mType == PlanetType::T3) tierArmorMult = 1.10f;
+	else if (planet->mType == PlanetType::T2) tierArmorMult = 0.98f;
+	else if (planet->mType == PlanetType::T1) tierArmorMult = 0.88f;
+
+	int defaultCities = (PlanetUtils::Homeworld(planet) || planet->mType == PlanetType::T3) ? 3 : ((planet->mType == PlanetType::T2) ? 2 : 1);
+	int cities = max(GetCachedCityCount(planet), defaultCities);
+	int turrets = GetTurretsInPlanet(planet);
+
+	float extraCities = static_cast<float>(max(cities - 1, 0));
+	float turretF = static_cast<float>(max(turrets, 0));
+	float cityHyperbola = 0.32f * (extraCities / (extraCities + 5.5f));
+	float turretHyperbola = 0.16f * (turretF / (turretF + 22.0f));
+	totalHP *= (tierArmorMult + cityHyperbola + turretHyperbola);
+
+	// 2. Динамическая цена пряности из .prop движка (поддержка любых модов на пряность)
+	float refRedPrice = max(ReadDynamicSpiceCostFromEngine(0x0289B83D), 1.0f);
+	float planetSpicePrice = max(ReadDynamicSpiceCostFromEngine(planet->mSpiceGen.instanceID), refRedPrice);
+	float logSpice = std::log2(max(planetSpicePrice / refRedPrice, 1.0f));
+	totalHP *= (1.0f + 0.20f * (logSpice / (logSpice + 2.5f)));
+
+	// 3. Множитель планетарных гаджетов из GadgetConfig.prop (0x07A1BC06)
+	SdoPlanetGadgetInfo gadgets = GetPlanetGadgetInfo(planet);
+	float gadgetMult = GetExternalGadgetMultiplier();
+	Simulator::Archetypes baseArch = ArchetypeUtils::GetBaseArchetype(empire->mArchetype);
+
+	float gadgetBonus = 0.0f;
+	if (gadgets.hasUberTurret) {
+		gadgetBonus += ((baseArch == Archetypes::kArchetypeScientist) ? 0.40f : 0.25f) * gadgetMult;
+	}
+	if (gadgets.hasBioProtector) {
+		if (baseArch == Archetypes::kArchetypeEcologist) gadgetBonus += 0.30f * gadgetMult;
+		else if (baseArch == Archetypes::kArchetypeShaman) gadgetBonus += 0.15f * gadgetMult;
+	}
+	totalHP *= (1.0f + gadgetBonus);
+
+	// 4. Гладкая S-кривая финансирования казны (строго для империи игрока)
+	if (empire == GetPlayerEmpire()) {
+		int starCount = static_cast<int>(empire->mStars.size());
+		float approxMaxTreasury = min(max((120000.0f + std::sqrt(static_cast<float>(max(starCount, 1))) * 220000.0f) *
+			((baseArch == Archetypes::kArchetypeTrader) ? 1.35f : 1.0f), 150000.0f), 5000000.0f);
+		float fillRatio = static_cast<float>(max(empire->mEmpireMoney, 0)) / approxMaxTreasury;
+		float deficitDrop = 0.25f * std::exp(-fillRatio * 14.0f);
+		float surplusBoost = (starCount >= 3) ? (0.16f * 0.5f * (std::tanh((fillRatio - 0.72f) * 4.0f) + 1.0f)) : 0.0f;
+		totalHP *= (1.0f - deficitDrop + surplusBoost);
+	}
+
+	return max(totalHP, 100.0f);
+}
+
+float cSpaceCombatMetrics::GetTurretHealthByEmpire(Simulator::cEmpire* empire)
 {
 	if (empire == nullptr) return GetFighterHealthByLevel(0);
 	float baseHealth = GetFighterHealthByLevel(empire->GetWeaponryLevel());
@@ -1270,7 +1321,13 @@ int cSpaceCombatMetrics::GetDefendersInPlanet(Simulator::cPlanetRecord* planet)
 			rawTotal = static_cast<int>(round(static_cast<float>(rawTotal) * fleetMult));
 
 			int totalSystems = static_cast<int>(empire->mStars.size());
-			int weaponryRank = max(empire->GetWeaponryLevel(), 1);
+			float starTier = min(std::sqrt(max(static_cast<float>(totalSystems - 1), 0.0f)) * 0.82f, 4.0f) + 1.0f;
+			float ufoTier = 1.0f;
+			cGameDataUFO* playerUfo = Simulator::GetPlayerUFO();
+			if (playerUfo != nullptr && playerUfo->mMaxHealthPoints > 300.0f) {
+				ufoTier = min(playerUfo->mMaxHealthPoints / 450.0f, 5.0f);
+			}
+			int weaponryRank = static_cast<int>(round(max(starTier, ufoTier)));
 			int dynamicCap = static_cast<int>(round(static_cast<float>(20 + static_cast<int>(totalSystems * 0.8f) + weaponryRank * 3) * fleetMult));
 			if (dynamicCap < 12) dynamicCap = 12;
 			if (dynamicCap > 120) dynamicCap = 120;
